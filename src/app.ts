@@ -1,9 +1,11 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import express, { type ErrorRequestHandler } from "express";
-import { ZodError } from "zod";
+import express from "express";
 import { config } from "./config.js";
-import { HttpError } from "./lib/errors.js";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+import { catalogueRouter } from "./modules/catalogue/routes.js";
+import { paymentsRouter } from "./modules/payments/routes.js";
+import { requestsRouter } from "./modules/requests/routes.js";
 
 export const app = express();
 
@@ -21,30 +23,9 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// Unknown route -> JSON 404 instead of Express' HTML default.
-app.use((_req, res) => {
-  res.status(404).json({ error: "Not found" });
-});
+app.use("/api", catalogueRouter);
+app.use("/api", requestsRouter);
+app.use("/api", paymentsRouter);
 
-const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
-  if (err instanceof HttpError) {
-    res.status(err.statusCode).json({ error: err.message, code: err.code });
-    return;
-  }
-
-  if (err instanceof ZodError) {
-    res.status(400).json({ error: "Invalid request data" });
-    return;
-  }
-
-  // Malformed JSON body from express.json().
-  if (err instanceof SyntaxError && "body" in err) {
-    res.status(400).json({ error: "Invalid JSON body" });
-    return;
-  }
-
-  console.error("Unhandled error:", err);
-  res.status(500).json({ error: "Internal server error" });
-};
-
+app.use(notFoundHandler);
 app.use(errorHandler);

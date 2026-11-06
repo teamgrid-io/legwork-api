@@ -1,0 +1,161 @@
+// Legwork - Full Database Model (all 9 tables)
+// Phase 1 (now):  frontend fills form fields only; server fills the rest.
+// Later phases:   fields marked [later] are used when those features are built.
+// Paste into https://dbdiagram.io
+
+Table countries {
+  id uuid [pk, default: `gen_random_uuid()`]
+  iso2 char(2) [unique, not null, note: 'e.g. IN, GE']
+  name text [not null]
+  slug text [unique, not null, note: 'used in URLs']
+}
+
+Table visa_rules {
+  id uuid [pk, default: `gen_random_uuid()`]
+  destination_country_id uuid [not null, ref: > countries.id]
+  passport_country_id uuid [not null, ref: > countries.id]
+  requirement text [not null, note: 'visa_free, visa_required']
+  notes text [note: 'shown to traveller']
+
+  indexes {
+    (destination_country_id, passport_country_id) [unique, name: 'visa_rules_pair_uq']
+  }
+}
+
+Table visa_products {
+  id uuid [pk, default: `gen_random_uuid()`]
+  destination_country_id uuid [not null, ref: > countries.id]
+  route text [not null, note: 'complete (phase 1), guided (later)']
+  name text [not null, note: 'e.g. Georgia e-visa: Complete Application']
+  stay_days int
+  processing_days_min int [not null]
+  processing_days_max int [not null, note: '>= processing_days_min']
+  passport_validity_months int
+  required_documents jsonb [not null, default: '[]', note: 'e.g. ["passport_page","photo"]']
+  government_fee_cents int [not null, note: '>= 0; current fee, copied to requests at creation']
+  legwork_fee_cents int [not null, note: '>= 0; current fee, copied to requests at creation']
+  currency char(3) [not null, default: 'USD']
+  active boolean [not null, default: true]
+
+  indexes {
+    (destination_country_id, route) [unique, name: 'visa_products_country_route_uq']
+  }
+}
+
+Table fee_versions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  visa_product_id uuid [not null, ref: > visa_products.id]
+  government_fee_cents int [not null, note: '>= 0']
+  legwork_fee_cents int [not null, note: '>= 0']
+  currency char(3) [not null, default: 'USD']
+  effective_from date [not null]
+  created_by text [note: 'staff email']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (visa_product_id, effective_from) [unique, name: 'fee_versions_product_date_uq']
+  }
+
+  Note: 'Append-only. Never update a row. Current price = latest row with effective_from <= today.'
+}
+
+Table staff_users {
+  id uuid [pk, default: `gen_random_uuid()`]
+  email text [unique, not null]
+  name text [not null]
+  password_hash text [not null, note: 'bcrypt or argon2, never plain text']
+  role text [not null, note: 'editor, specialist, admin']
+  active boolean [not null, default: true, note: 'deactivate instead of delete']
+}
+
+Table requests {
+  id uuid [pk, default: `gen_random_uuid()`]
+  reference text [unique, not null, note: 'e.g. LW-7K3F2, shown on thank-you page']
+  status_token_hash char(64) [unique, note: 'SHA-256 of status link token; [later] nullable until status link is enabled']
+  visa_product_id uuid [not null, ref: > visa_products.id]
+  destination_country_id uuid [not null, ref: > countries.id]
+  passport_country_id uuid [not null, ref: > countries.id]
+
+  government_fee_cents int [not null, note: 'server-set, locked at creation; >= 0']
+  legwork_fee_cents int [not null, note: 'server-set, locked at creation; >= 0']
+  currency char(3) [not null, default: 'USD', note: 'server-set, locked at creation']
+  amount_cents int [not null, note: 'server-set total = (gov + legwork) x applicants; > 0']
+
+  status text [not null, default: 'requested', note: 'requested, confirmed, paid, documents_in, in_review, filed, guide_sent, delivered, closed']
+  side_state text [note: 'needs_info, not_eligible, refused, payment_due, cancelled, abandoned; [later]']
+  estimated_ready_date date [note: 'server-set at confirmation; [later]']
+
+  payment_status text [not null, default: 'unpaid', note: 'unpaid, paid']
+  payment_provider text [note: 'stripe, dummy']
+  stripe_checkout_session_id text [unique, note: 'Stripe Checkout session ID; verified on server']
+  paid_at timestamptz [note: 'server-set when Stripe confirms payment']
+
+  travel_date date [not null, note: 'must be in the future at creation']
+  contact_email text [not null]
+  contact_phone text
+
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, travel_date) [name: 'requests_status_travel_idx']
+    (payment_status, created_at) [name: 'requests_payment_created_idx']
+    contact_email [name: 'requests_email_idx']
+  }
+
+  Note: 'Browser never sends amounts, fees, status, or payment fields. Server sets them.'
+}
+
+Table applicants {
+  id uuid [pk, default: `gen_random_uuid()`]
+  request_id uuid [not null, ref: > requests.id, note: 'cascade delete']
+  full_name text [not null]
+  date_of_birth date
+  nationality_country_id uuid [ref: > countries.id]
+  passport_number_enc bytea [note: '[later] encrypted in app code; not collected in phase 1']
+  passport_expiry date [note: '[later] used for validity check']
+  sort_order int [not null, default: 1, note: '>= 1; max 2 in demo']
+
+  indexes {
+    request_id [name: 'applicants_request_idx']
+  }
+}
+
+Table documents {
+  id uuid [pk, default: `gen_random_uuid()`]
+  request_id uuid [not null, ref: > requests.id, note: 'cascade delete']
+  applicant_id uuid [ref: > applicants.id, note: 'null = trip-level file; cascade delete']
+  kind text [not null, note: 'passport_page, photo, trip_evidence']
+  storage_key text [unique, not null, note: 'random UUID file name on disk']
+  sha256 char(64) [not null]
+  mime_type text [not null, note: 'image/jpeg, image/png, application/pdf']
+  size_bytes bigint [not null, note: '> 0 and <= 5242880 (5 MB)']
+  status text [not null, default: 'uploaded', note: 'uploaded, accepted, needs_fix, rejected']
+  reviewed_by uuid [ref: > staff_users.id]
+  reviewed_at timestamptz
+  uploaded_at timestamptz [not null, default: `now()`]
+  delete_after timestamptz [note: 'uploaded_at + 90 days']
+
+  indexes {
+    request_id [name: 'documents_request_idx']
+  }
+
+  Note: '[later] document upload phase. Table ready now.'
+}
+
+Table request_events {
+  id bigint [pk, increment]
+  request_id uuid [not null, ref: > requests.id, note: 'cascade delete']
+  from_status text [note: 'null for first event']
+  to_status text [not null]
+  actor_type text [not null, note: 'traveller, specialist, system, stripe']
+  actor_id uuid [note: 'staff id when applicable']
+  note text
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (request_id, created_at) [name: 'request_events_request_time_idx']
+  }
+
+  Note: 'Written in the same transaction as every status change. Phase 1: one row per new request.'
+}

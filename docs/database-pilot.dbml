@@ -1,0 +1,209 @@
+// Legwork VAMS - Pilot database (13 tables)
+// Flow: basic details -> pending checkout -> Stripe payment -> webhook creates order -> full details -> documents -> admin review.
+// Source of truth for schema.ts. Change this file first, then the code.
+
+Table countries {
+  id uuid [pk, default: `gen_random_uuid()`]
+  iso2 char(2) [unique, not null, note: 'e.g. IN, GE, TZ']
+  name text [not null]
+  slug text [unique, not null]
+}
+
+Table visa_rules {
+  id uuid [pk, default: `gen_random_uuid()`]
+  destination_country_id uuid [not null, ref: > countries.id]
+  passport_country_id uuid [not null, ref: > countries.id, note: 'only field the visa rule uses']
+  requirement text [not null, note: 'visa_free, visa_required']
+  notes text
+
+  indexes {
+    (destination_country_id, passport_country_id) [unique, name: 'visa_rules_pair_uq']
+  }
+}
+
+Table visa_products {
+  id uuid [pk, default: `gen_random_uuid()`]
+  destination_country_id uuid [not null, ref: > countries.id]
+  name text [not null, note: 'e.g. Zanzibar Multiple Entry Visa']
+  visa_type text [not null, note: 'single_entry, multiple_entry']
+  stay_days int
+  processing_days_min int [not null]
+  processing_days_max int [not null, note: '>= processing_days_min']
+  government_fee_cents int [not null, note: '>= 0; current fee, copied at checkout']
+  legwork_fee_cents int [not null, note: '>= 0; current fee, copied at checkout']
+  currency char(3) [not null, default: 'USD']
+  required_documents jsonb [not null, default: '[]', note: 'e.g. ["applicant_photo","passport_scan","return_ticket"]']
+  current_form_version int [not null, default: 1, note: 'bumped when a new form is published']
+  active boolean [not null, default: true]
+}
+
+Table form_fields {
+  id uuid [pk, default: `gen_random_uuid()`]
+  visa_product_id uuid [not null, ref: > visa_products.id]
+  form_version int [not null]
+  step text [not null, note: 'basic, full']
+  group_key text [not null, note: 'account, personal, contact, passport, spouse, travel, declaration']
+  field_key text [not null, note: 'stable machine name, e.g. passport_number']
+  label text [not null]
+  field_type text [not null, note: 'text, email, phone, date, select, radio, checkbox, country']
+  required boolean [not null, default: false]
+  options jsonb [not null, default: '[]', note: 'values for select, radio, checkbox']
+  sort_order int [not null, default: 0]
+  visible_if jsonb [note: 'optional rule; null means always visible. Shape: {"field":"<field_key>","equals":"<value>"} or {"field":"<field_key>","in":["a","b"]}']
+
+  indexes {
+    (visa_product_id, form_version, field_key) [unique, name: 'form_fields_version_key_uq']
+    (visa_product_id, form_version, step, sort_order) [name: 'form_fields_order_idx']
+  }
+}
+
+// Basic details held until payment is confirmed. No order exists yet.
+Table pending_checkouts {
+  id uuid [pk, default: `gen_random_uuid()`]
+  reference text [unique, not null, note: 'internal reference, e.g. PC-7K3F2']
+  visa_product_id uuid [not null, ref: > visa_products.id]
+  passport_country_id uuid [not null, ref: > countries.id]
+  origin_country_id uuid [ref: > countries.id, note: 'embassy and routing only']
+  travel_date date [not null, note: 'must be in the future']
+  traveller_count int [not null, note: '1 to 2 in pilot']
+  travellers jsonb [not null, note: 'basic per-traveller names, e.g. [{"first_name":"..","surname":".."}]']
+  contact_email text [not null]
+  contact_phone text
+  form_version int [not null, note: 'pinned at checkout']
+  government_fee_cents int [not null, note: 'snapshot per traveller']
+  legwork_fee_cents int [not null, note: 'snapshot per traveller']
+  amount_cents int [not null, note: '> 0; total for all travellers']
+  currency char(3) [not null, default: 'USD']
+  status text [not null, default: 'open', note: 'open, paid, expired']
+  stripe_session_id text [unique, note: 'set when checkout starts']
+  expires_at timestamptz [not null, note: 'expired checkouts never become orders']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, expires_at) [name: 'pending_checkouts_status_idx']
+  }
+}
+
+Table customers {
+  id uuid [pk, default: `gen_random_uuid()`]
+  email text [unique, not null]
+  name text [not null]
+  phone text
+  password_hash text [note: 'null until activated; argon2id']
+  activation_token_hash char(64) [unique, note: 'single-use link, stored as hash only']
+  activation_expires_at timestamptz
+  activated_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+}
+
+// Created only by the verified Stripe webhook.
+Table orders {
+  id uuid [pk, default: `gen_random_uuid()`]
+  order_number text [unique, not null, note: 'e.g. VISA-2026-000125']
+  pending_checkout_id uuid [unique, not null, ref: > pending_checkouts.id, note: 'idempotency: one order per paid checkout']
+  customer_id uuid [ref: > customers.id, note: 'created with the order']
+  visa_product_id uuid [not null, ref: > visa_products.id]
+  passport_country_id uuid [not null, ref: > countries.id]
+  origin_country_id uuid [ref: > countries.id]
+  travel_date date [not null]
+  traveller_count int [not null, note: '1 to 2 in pilot']
+  contact_email text [not null]
+  contact_phone text
+  form_version int [not null, note: 'pinned from checkout']
+  amount_cents int [not null, note: '> 0']
+  currency char(3) [not null, default: 'USD']
+  status text [not null, default: 'paid', note: 'paid, in_review, needs_info, ready_to_submit, submitted, completed, cancelled']
+  paid_at timestamptz [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, travel_date) [name: 'orders_status_travel_idx']
+    contact_email [name: 'orders_email_idx']
+  }
+}
+
+Table order_items {
+  id uuid [pk, default: `gen_random_uuid()`]
+  order_id uuid [not null, ref: > orders.id, note: 'cascade delete']
+  item_type text [not null, note: 'government_fee, service_fee, tax, adjustment']
+  description text [not null]
+  quantity int [not null, default: 1, note: '>= 1']
+  unit_amount_cents int [not null, note: '>= 0']
+  total_amount_cents int [not null, note: 'quantity x unit, unless adjustment']
+  currency char(3) [not null, default: 'USD']
+}
+
+Table applicants {
+  id uuid [pk, default: `gen_random_uuid()`]
+  order_id uuid [not null, ref: > orders.id, note: 'cascade delete']
+  sort_order int [not null, default: 1, note: '>= 1; 1 = primary applicant']
+  first_name text [not null]
+  surname text [not null]
+  answers jsonb [not null, default: '{}', note: 'full-details answers keyed by field_key; passport number encrypted in app']
+  status text [not null, default: 'incomplete', note: 'incomplete, documents_pending, complete, under_review, approved, rejected']
+  submitted_at timestamptz
+
+  indexes {
+    (order_id, sort_order) [unique, name: 'applicants_order_sort_uq']
+  }
+}
+
+Table documents {
+  id uuid [pk, default: `gen_random_uuid()`]
+  applicant_id uuid [not null, ref: > applicants.id, note: 'cascade delete']
+  document_type text [not null, note: 'applicant_photo, passport_scan, return_ticket']
+  storage_key text [unique, not null, note: 'private key, never a public URL']
+  sha256 char(64) [not null]
+  mime_type text [not null, note: 'image/jpeg, image/png, application/pdf']
+  size_bytes bigint [not null, note: '> 0 and <= 5242880 (5 MB)']
+  status text [not null, default: 'uploaded', note: 'uploaded, accepted, needs_fix, rejected']
+  reviewed_by uuid [ref: > staff_users.id]
+  reviewed_at timestamptz
+  uploaded_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    applicant_id [name: 'documents_applicant_idx']
+  }
+}
+
+Table order_events {
+  id bigint [pk, increment]
+  order_id uuid [not null, ref: > orders.id, note: 'cascade delete']
+  from_status text
+  to_status text [not null]
+  actor_type text [not null, note: 'customer, staff, system, stripe']
+  actor_id uuid
+  note text
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (order_id, created_at) [name: 'order_events_order_time_idx']
+  }
+}
+
+Table audit_logs {
+  id bigint [pk, increment]
+  actor_type text [not null]
+  actor_id uuid
+  action text [not null, note: 'e.g. passport.viewed, order.status_changed, document.reviewed']
+  entity_type text [not null]
+  entity_id uuid
+  metadata jsonb [not null, default: '{}', note: 'never store passport numbers or secrets']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (entity_type, entity_id, created_at) [name: 'audit_logs_entity_idx']
+  }
+}
+
+Table staff_users {
+  id uuid [pk, default: `gen_random_uuid()`]
+  email text [unique, not null]
+  name text [not null]
+  password_hash text [not null, note: 'argon2id']
+  role text [not null, note: 'admin, agent']
+  active boolean [not null, default: true]
+  mfa_enabled boolean [not null, default: false, note: 'required for staff by the document']
+  mfa_secret_enc bytea [note: 'encrypted in app; null until MFA is set up']
+}

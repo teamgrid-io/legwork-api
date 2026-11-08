@@ -2,30 +2,36 @@ import { randomInt } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
-  applicants,
   countries,
-  requestEvents,
-  requests,
+  pendingCheckouts,
   visaProducts,
   visaRules,
 } from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
 import type { CreateRequestInput } from "./schema.js";
 
-export interface CreatedRequestDto {
+export interface CreatedPendingCheckoutDto {
   id: string;
   reference: string;
   amountCents: number;
   currency: string;
 }
 
+interface PendingTraveller {
+  first_name: string;
+  surname: string;
+}
+
 const REFERENCE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const CHECKOUT_TTL_MS = 30 * 60 * 1000;
 
 function randomReferenceSuffix(): string {
   let suffix = "";
 
   for (let index = 0; index < 5; index += 1) {
-    suffix += REFERENCE_ALPHABET[randomInt(REFERENCE_ALPHABET.length)];
+    suffix += REFERENCE_ALPHABET.charAt(
+      randomInt(REFERENCE_ALPHABET.length),
+    );
   }
 
   return suffix;
@@ -33,12 +39,12 @@ function randomReferenceSuffix(): string {
 
 async function generateUniqueReference(): Promise<string> {
   for (;;) {
-    const reference = `LW-${randomReferenceSuffix()}`;
+    const reference = `PC-${randomReferenceSuffix()}`;
 
     const [existing] = await db
-      .select({ id: requests.id })
-      .from(requests)
-      .where(eq(requests.reference, reference))
+      .select({ id: pendingCheckouts.id })
+      .from(pendingCheckouts)
+      .where(eq(pendingCheckouts.reference, reference))
       .limit(1);
 
     if (!existing) {
@@ -47,9 +53,17 @@ async function generateUniqueReference(): Promise<string> {
   }
 }
 
+function toTraveller(fullName: string): PendingTraveller {
+  const parts = fullName.trim().split(/\s+/);
+  const firstName = parts[0] ?? fullName.trim();
+  const surname = parts.length > 1 ? parts.slice(1).join(" ") : "";
+
+  return { first_name: firstName, surname };
+}
+
 export async function createRequest(
   input: CreateRequestInput,
-): Promise<CreatedRequestDto> {
+): Promise<CreatedPendingCheckoutDto> {
   const destinationCode = input.destinationIso2.toUpperCase();
   const passportCode = input.passportIso2.toUpperCase();
 
@@ -98,12 +112,12 @@ export async function createRequest(
       governmentFeeCents: visaProducts.governmentFeeCents,
       legworkFeeCents: visaProducts.legworkFeeCents,
       currency: visaProducts.currency,
+      currentFormVersion: visaProducts.currentFormVersion,
     })
     .from(visaProducts)
     .where(
       and(
         eq(visaProducts.destinationCountryId, destinationCountry.id),
-        eq(visaProducts.route, "complete"),
         eq(visaProducts.active, true),
       ),
     )
@@ -113,81 +127,53 @@ export async function createRequest(
     throw new HttpError(404, "No visa product for this destination");
   }
 
-  const perPersonCents =
+  const travellerCount = input.applicants.length;
+  const perTravellerCents =
     product.governmentFeeCents + product.legworkFeeCents;
-  const amountCents = perPersonCents * input.applicants.length;
-  const reference = await generateUniqueReference();
+  const amountCents = perTravellerCents * travellerCount;
 
+  if (amountCents <= 0) {
+    throw new HttpError(400, "Visa product amount must be greater than zero");
+  }
+
+  const reference = await generateUniqueReference();
   const contactPhone =
     input.contactPhone && input.contactPhone.trim() !== ""
       ? input.contactPhone.trim()
       : null;
+  const travellers = input.applicants.map((applicant) =>
+    toTraveller(applicant.fullName),
+  );
 
-  return db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(requests)
-      .values({
-        reference,
-        visaProductId: product.id,
-        destinationCountryId: destinationCountry.id,
-        passportCountryId: passportCountry.id,
-        governmentFeeCents: product.governmentFeeCents,
-        legworkFeeCents: product.legworkFeeCents,
-        currency: product.currency,
-        amountCents,
-        travelDate: input.travelDate,
-        contactEmail: input.contactEmail,
-        contactPhone,
-      })
-      .returning({
-        id: requests.id,
-        reference: requests.reference,
-        amountCents: requests.amountCents,
-        currency: requests.currency,
-      });
-
-    if (!created) {
-      throw new Error("Request insert returned no row");
-    }
-
-    for (const [index, applicant] of input.applicants.entries()) {
-      let nationalityCountryId: string | null = null;
-
-      if (applicant.nationalityIso2) {
-        const [nationality] = await tx
-          .select({ id: countries.id })
-          .from(countries)
-          .where(eq(countries.iso2, applicant.nationalityIso2))
-          .limit(1);
-
-        if (!nationality) {
-          throw new HttpError(400, "Unknown nationality");
-        }
-
-        nationalityCountryId = nationality.id;
-      }
-
-      await tx.insert(applicants).values({
-        requestId: created.id,
-        fullName: applicant.fullName,
-        dateOfBirth: applicant.dateOfBirth ?? null,
-        nationalityCountryId,
-        sortOrder: index + 1,
-      });
-    }
-
-    await tx.insert(requestEvents).values({
-      requestId: created.id,
-      fromStatus: null,
-      toStatus: "requested",
-      actorType: "traveller",
+  const [created] = await db
+    .insert(pendingCheckouts)
+    .values({
+      reference,
+      visaProductId: product.id,
+      passportCountryId: passportCountry.id,
+      travelDate: input.travelDate,
+      travellerCount,
+      travellers,
+      contactEmail: input.contactEmail,
+      contactPhone,
+      formVersion: product.currentFormVersion,
+      governmentFeeCents: product.governmentFeeCents,
+      legworkFeeCents: product.legworkFeeCents,
+      amountCents,
+      currency: product.currency,
+      status: "open",
+      expiresAt: new Date(Date.now() + CHECKOUT_TTL_MS),
+    })
+    .returning({
+      id: pendingCheckouts.id,
+      reference: pendingCheckouts.reference,
+      amountCents: pendingCheckouts.amountCents,
+      currency: pendingCheckouts.currency,
     });
 
-    return {
-      id: created.id,
-      reference: created.reference,
-      amountCents: created.amountCents,
-      currency: created.currency,
-    };
-  });
+  if (!created) {
+    throw new Error("Pending checkout insert returned no row");
+  }
+
+  return created;
 }

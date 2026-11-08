@@ -28,6 +28,7 @@ const envSchema = z
       error: "must be 'stripe' or 'dummy'",
     }),
     STRIPE_SECRET_KEY: z.string().min(1, "must not be empty").optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1, "must not be empty").optional(),
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
@@ -37,6 +38,14 @@ const envSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["STRIPE_SECRET_KEY"],
+        message: "is required when PAYMENT_PROVIDER is 'stripe'",
+      });
+    }
+
+    if (env.PAYMENT_PROVIDER === "stripe" && !env.STRIPE_WEBHOOK_SECRET) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["STRIPE_WEBHOOK_SECRET"],
         message: "is required when PAYMENT_PROVIDER is 'stripe'",
       });
     }
@@ -58,6 +67,7 @@ export interface AppConfig {
   readonly webUrl: string;
   readonly paymentProvider: "stripe" | "dummy";
   readonly stripeSecretKey: string | undefined;
+  readonly stripeWebhookSecret: string | undefined;
   readonly adminPassword: string;
 }
 
@@ -107,6 +117,7 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       webUrl: env.WEB_URL,
       paymentProvider: env.PAYMENT_PROVIDER,
       stripeSecretKey: env.STRIPE_SECRET_KEY,
+      stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
       adminPassword: env.ADMIN_PASSWORD,
     }),
   };

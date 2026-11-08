@@ -29,6 +29,9 @@ const envSchema = z
     }),
     STRIPE_SECRET_KEY: z.string().min(1, "must not be empty").optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1, "must not be empty").optional(),
+    FIELD_ENCRYPTION_KEY: z
+      .string({ error: "is required" })
+      .regex(/^[0-9a-f]{64}$/i, "must be a 64-character hex string"),
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
@@ -68,6 +71,7 @@ export interface AppConfig {
   readonly paymentProvider: "stripe" | "dummy";
   readonly stripeSecretKey: string | undefined;
   readonly stripeWebhookSecret: string | undefined;
+  readonly fieldEncryptionKey: Buffer;
   readonly adminPassword: string;
 }
 
@@ -118,6 +122,7 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       paymentProvider: env.PAYMENT_PROVIDER,
       stripeSecretKey: env.STRIPE_SECRET_KEY,
       stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+      fieldEncryptionKey: Buffer.from(env.FIELD_ENCRYPTION_KEY, "hex"),
       adminPassword: env.ADMIN_PASSWORD,
     }),
   };

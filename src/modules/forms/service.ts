@@ -17,6 +17,17 @@ export interface FormGroupDto {
   fields: FormFieldDto[];
 }
 
+export interface FormFieldRecord {
+  fieldKey: string;
+  label: string;
+  fieldType: string;
+  required: boolean;
+  options: unknown;
+  sortOrder: number;
+  groupKey: string;
+  visibleIf: unknown;
+}
+
 type VisibleIfRule =
   | { field: string; equals: unknown }
   | { field: string; in: unknown[] };
@@ -60,40 +71,10 @@ function parseVisibleIf(value: unknown): VisibleIfRule | null {
   return { field, in: rule.in };
 }
 
-export async function getVisibleFields(
-  input: VisibleFieldInput,
-): Promise<FormGroupDto[]> {
-  const [product] = await db
-    .select({ currentFormVersion: visaProducts.currentFormVersion })
-    .from(visaProducts)
-    .where(eq(visaProducts.id, input.visaProductId))
-    .limit(1);
-
-  if (!product) {
-    throw new HttpError(404, "Visa product not found");
-  }
-
-  const fields = await db
-    .select({
-      fieldKey: formFields.fieldKey,
-      label: formFields.label,
-      fieldType: formFields.fieldType,
-      required: formFields.required,
-      options: formFields.options,
-      sortOrder: formFields.sortOrder,
-      groupKey: formFields.groupKey,
-      visibleIf: formFields.visibleIf,
-    })
-    .from(formFields)
-    .where(
-      and(
-        eq(formFields.visaProductId, input.visaProductId),
-        eq(formFields.formVersion, product.currentFormVersion),
-        eq(formFields.step, "full"),
-      ),
-    )
-    .orderBy(asc(formFields.sortOrder));
-
+export function computeVisibleFieldKeys(
+  fields: readonly FormFieldRecord[],
+  answers: Record<string, unknown>,
+): Set<string> {
   const fieldsByKey = new Map(
     fields.map((field) => [field.fieldKey, field]),
   );
@@ -133,7 +114,7 @@ export async function getVisibleFields(
         // A hidden field has no answer, so dependants are hidden too.
         visible = false;
       } else {
-        const answer = input.answers[rule.field];
+        const answer = answers[rule.field];
 
         visible =
           "equals" in rule
@@ -148,10 +129,56 @@ export async function getVisibleFields(
     return visible;
   }
 
+  const visibleKeys = new Set<string>();
+
+  for (const field of fields) {
+    if (isVisible(field.fieldKey)) {
+      visibleKeys.add(field.fieldKey);
+    }
+  }
+
+  return visibleKeys;
+}
+
+export async function getVisibleFields(
+  input: VisibleFieldInput,
+): Promise<FormGroupDto[]> {
+  const [product] = await db
+    .select({ currentFormVersion: visaProducts.currentFormVersion })
+    .from(visaProducts)
+    .where(eq(visaProducts.id, input.visaProductId))
+    .limit(1);
+
+  if (!product) {
+    throw new HttpError(404, "Visa product not found");
+  }
+
+  const fields = await db
+    .select({
+      fieldKey: formFields.fieldKey,
+      label: formFields.label,
+      fieldType: formFields.fieldType,
+      required: formFields.required,
+      options: formFields.options,
+      sortOrder: formFields.sortOrder,
+      groupKey: formFields.groupKey,
+      visibleIf: formFields.visibleIf,
+    })
+    .from(formFields)
+    .where(
+      and(
+        eq(formFields.visaProductId, input.visaProductId),
+        eq(formFields.formVersion, product.currentFormVersion),
+        eq(formFields.step, "full"),
+      ),
+    )
+    .orderBy(asc(formFields.sortOrder));
+
+  const visibleKeys = computeVisibleFieldKeys(fields, input.answers);
   const groups = new Map<string, FormFieldDto[]>();
 
   for (const field of fields) {
-    if (!isVisible(field.fieldKey)) {
+    if (!visibleKeys.has(field.fieldKey)) {
       continue;
     }
 

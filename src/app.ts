@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { applicationsRouter } from "./modules/applications/routes.js";
 import { catalogueRouter } from "./modules/catalogue/routes.js";
+import { documentsRouter } from "./modules/documents/routes.js";
 import { formsRouter } from "./modules/forms/routes.js";
 import { paymentsRouter } from "./modules/payments/routes.js";
 import { requestsRouter } from "./modules/requests/routes.js";
@@ -32,6 +33,7 @@ app.use("/api/v1", requestsRouter);
 app.use("/api/v1", paymentsRouter);
 app.use("/api/v1", formsRouter);
 app.use("/api/v1", applicationsRouter);
+app.use("/api/v1", documentsRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -10,6 +10,9 @@ dist/
 .env.*
 !.env.example
 
+# Private uploads
+private-uploads/
+
 # Logs
 logs/
 *.log

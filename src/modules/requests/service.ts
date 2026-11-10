@@ -5,7 +5,6 @@ import {
   countries,
   pendingCheckouts,
   visaProducts,
-  visaRules,
 } from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
 import type { CreateRequestInput } from "./schema.js";
@@ -20,6 +19,8 @@ export interface CreatedPendingCheckoutDto {
 interface PendingTraveller {
   first_name: string;
   surname: string;
+  gender: string;
+  maritalStatus: string;
 }
 
 const REFERENCE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -53,12 +54,16 @@ async function generateUniqueReference(): Promise<string> {
   }
 }
 
-function toTraveller(fullName: string): PendingTraveller {
+function toTraveller(
+  fullName: string,
+  gender: string,
+  maritalStatus: string,
+): PendingTraveller {
   const parts = fullName.trim().split(/\s+/);
   const firstName = parts[0] ?? fullName.trim();
   const surname = parts.length > 1 ? parts.slice(1).join(" ") : "";
 
-  return { first_name: firstName, surname };
+  return { first_name: firstName, surname, gender, maritalStatus };
 }
 
 export async function createRequest(
@@ -86,24 +91,6 @@ export async function createRequest(
   const todayUtc = new Date().toISOString().slice(0, 10);
   if (input.travelDate <= todayUtc) {
     throw new HttpError(400, "travelDate must be in the future");
-  }
-
-  const [rule] = await db
-    .select({ requirement: visaRules.requirement })
-    .from(visaRules)
-    .where(
-      and(
-        eq(visaRules.destinationCountryId, destinationCountry.id),
-        eq(visaRules.passportCountryId, passportCountry.id),
-      ),
-    )
-    .limit(1);
-
-  if (!rule || rule.requirement !== "visa_required") {
-    throw new HttpError(
-      400,
-      "This route cannot be requested online; contact us",
-    );
   }
 
   const [product] = await db
@@ -142,7 +129,7 @@ export async function createRequest(
       ? input.contactPhone.trim()
       : null;
   const travellers = input.applicants.map((applicant) =>
-    toTraveller(applicant.fullName),
+    toTraveller(applicant.fullName, applicant.gender, applicant.maritalStatus),
   );
 
   const [created] = await db

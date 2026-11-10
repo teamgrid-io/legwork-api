@@ -140,21 +140,27 @@ export async function completePendingCheckout(
       );
     }
 
-    const applicantNames = travellers.map((entry) => {
+    const applicantDetails = travellers.map((entry) => {
       if (typeof entry !== "object" || entry === null) {
         throw new Error("Invalid traveller entry");
       }
 
-      const { first_name: firstName, surname } = entry as Record<
-        string,
-        unknown
-      >;
+      const {
+        first_name: firstName,
+        surname,
+        gender,
+        maritalStatus,
+      } = entry as Record<string, unknown>;
 
       if (typeof firstName !== "string" || typeof surname !== "string") {
         throw new Error("Invalid traveller name");
       }
 
-      return { firstName, surname };
+      if (typeof gender !== "string" || typeof maritalStatus !== "string") {
+        throw new Error("Invalid traveller details");
+      }
+
+      return { firstName, surname, gender, maritalStatus };
     });
 
     const paidAt = new Date();
@@ -219,12 +225,15 @@ export async function completePendingCheckout(
     ]);
 
     await tx.insert(applicants).values(
-      applicantNames.map((name, index) => ({
+      applicantDetails.map((applicant, index) => ({
         orderId: createdOrder.id,
         sortOrder: index + 1,
-        firstName: name.firstName,
-        surname: name.surname,
-        answers: {},
+        firstName: applicant.firstName,
+        surname: applicant.surname,
+        answers: {
+          gender: applicant.gender,
+          marital_status: applicant.maritalStatus,
+        },
         status: "incomplete",
       })),
     );

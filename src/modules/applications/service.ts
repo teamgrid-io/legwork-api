@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   applicants,
@@ -321,22 +321,22 @@ export async function submitApplication(
   let missingDocuments: string[] = [];
 
   if (requiredDocuments.length > 0) {
-    const acceptedDocuments = await db
+    const availableDocuments = await db
       .select({ documentType: documents.documentType })
       .from(documents)
       .where(
         and(
           eq(documents.applicantId, applicantId),
-          eq(documents.status, "accepted"),
+          inArray(documents.status, ["uploaded", "accepted"]),
         ),
       );
 
-    const acceptedTypes = new Set(
-      acceptedDocuments.map((document) => document.documentType),
+    const availableTypes = new Set(
+      availableDocuments.map((document) => document.documentType),
     );
 
     missingDocuments = requiredDocuments.filter(
-      (documentType) => !acceptedTypes.has(documentType),
+      (documentType) => !availableTypes.has(documentType),
     );
   }
 

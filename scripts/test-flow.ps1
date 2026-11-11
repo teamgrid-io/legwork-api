@@ -14,8 +14,10 @@ function Call($method, $url, $headers = @{}, $body = $null) {
   }
 }
 
-function Check($name, $res, [int]$expect, $contains = "") {
-  $ok = ($res.status -eq $expect) -and ($contains -eq "" -or $res.text -like "*$contains*")
+function Check($name, $res, [int]$expect, $contains = "", $notContains = "") {
+  $ok = ($res.status -eq $expect) -and
+    ($contains -eq "" -or $res.text -like "*$contains*") -and
+    ($notContains -eq "" -or $res.text -notlike "*$notContains*")
   $script:rows += [pscustomobject]@{ Check = $name; Expected = $expect; Got = $res.status; Pass = $ok }
   Write-Host ("{0,-40} {1}" -f $name, $(if ($ok) { "PASS" } else { "FAIL -> $($res.text)" }))
 }
@@ -47,8 +49,8 @@ $token = (node -e "const {issueTestToken}=require('./dist/modules/applications/t
 $h = @{ "x-applicant-token" = $token }
 @"
 INSERT INTO form_fields (visa_product_id, form_version, step, group_key, field_key, label, field_type, required, options, sort_order, visible_if) VALUES
-('$GE', 1, 'full', 'travel', 'first_visit', 'Is this your first time visiting?', 'radio', true, '["Yes","No"]', 10, NULL),
-('$GE', 1, 'full', 'travel', 'last_visit_date', 'Last visit date', 'date', false, '[]', 20, '{"field":"first_visit","equals":"No"}'),
+('$GE', 1, 'full', 'travel', 'employment_status', 'Employment status', 'select', true, '["Employed","Retired"]', 10, NULL),
+('$GE', 1, 'full', 'travel', 'employer', 'Employer', 'text', false, '[]', 20, '{"field":"employment_status","equals":"Employed"}'),
 ('$GE', 1, 'full', 'travel', 'passport_number', 'Passport number', 'text', true, '[]', 30, NULL)
 ON CONFLICT DO NOTHING;
 "@ | Set-Content -Path insert_flow.sql -Encoding ascii
@@ -56,20 +58,21 @@ ON CONFLICT DO NOTHING;
 Remove-Item insert_flow.sql
 
 # 4 Visible questions
-Check "form with no answers" (Call GET "$base/visaProducts/$GE/form") 200 "first_visit"
-$no = [uri]::EscapeDataString('{"first_visit":"No"}')
-Check "form: first visit No shows follow-up" (Call GET "$base/visaProducts/$GE/form?answers=$no") 200 "last_visit_date"
+$emp = [uri]::EscapeDataString('{"employment_status":"Employed"}')
+Check "form: employed shows employer" (Call GET "$base/visaProducts/$GE/form?answers=$emp") 200 "employer"
+$ret = [uri]::EscapeDataString('{"employment_status":"Retired"}')
+Check "form: retired hides employer" (Call GET "$base/visaProducts/$GE/form?answers=$ret") 200 "employment_status" "employer"
 $bad = [uri]::EscapeDataString('not json')
 Check "form: malformed answers" (Call GET "$base/visaProducts/$GE/form?answers=$bad") 400 "valid JSON"
 
 # 5 Save answers
-$ans = @{ answers = @{ first_visit="No"; last_visit_date="2024-05-01"; passport_number="568780197" } } | ConvertTo-Json -Depth 4
+$ans = @{ answers = @{ employment_status="Employed"; employer="Acme Corp"; passport_number="568780197" } } | ConvertTo-Json -Depth 4
 Check "save answers" (Call PUT "$base/applicants/$applicantId/answers" $h $ans) 200 "savedFields"
 Check "save with wrong token" (Call PUT "$base/applicants/$applicantId/answers" @{ "x-applicant-token" = "wrong" } $ans) 401 "Invalid access token"
 $unk = @{ answers = @{ no_such_field="x" } } | ConvertTo-Json -Depth 4
 Check "save unknown field" (Call PUT "$base/applicants/$applicantId/answers" $h $unk) 400 "Unknown field"
-$hid = @{ answers = @{ first_visit="Yes"; last_visit_date="2024-05-01" } } | ConvertTo-Json -Depth 4
-Check "save hidden field" (Call PUT "$base/applicants/$applicantId/answers" $h $hid) 400 "Field not visible"
+$hid = @{ answers = @{ employment_status="Retired"; employer="Acme Corp" } } | ConvertTo-Json -Depth 4
+Check "save hidden employer" (Call PUT "$base/applicants/$applicantId/answers" $h $hid) 400 "Field not visible: employer"
 
 # 6 Submit before documents
 Check "submit refused: no documents" (Call POST "$base/applicants/$applicantId/submit" $h) 400 "Missing required documents"

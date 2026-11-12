@@ -6,6 +6,8 @@ export interface FileStorage {
   put(key: string, data: Buffer): Promise<void>;
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
+  /** Absolute filesystem path for a stored key. */
+  path(key: string): string;
 }
 
 function assertSafeKey(key: string): void {
@@ -46,6 +48,10 @@ export class LocalDiskStorage implements FileStorage {
         throw error;
       }
     }
+  }
+
+  path(key: string): string {
+    return this.resolve(key);
   }
 }
 

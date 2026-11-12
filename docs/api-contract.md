@@ -443,7 +443,8 @@ Purpose: Upload one required document for an applicant.
 
 - Allowed MIME types: `image/jpeg`, `image/png`, `application/pdf`.
 - JPEG, PNG, and PDF are detected from magic bytes; the declared type is not trusted.
-- Document `status` is one of `uploaded`, `pending_scan`, `verified`, `rejected`. Every upload is stored as a new row with status `uploaded`.
+- Document `status` is one of `uploaded`, `pending_scan`, `verified`, `rejected`. Every upload is stored as a new row with status `pending_scan`.
+- The row is queued for scanning immediately. A worker moves it to `verified` (clean file) or `rejected` with a `rejection_reason`; the status is not `verified` at the time of this response.
 - A file for a type that already has a `verified` document is rejected. Otherwise the new row is added and earlier rows for the same type are kept.
 
 The seeded products currently list no required documents, so uploads return `Document not required for this destination` until a product's required documents are configured.
@@ -454,9 +455,11 @@ The seeded products currently list no required documents, so uploads return `Doc
 {
   "documentId": "d2e4f6a8-1b3c-4d5e-8f90-1a2b3c4d5e6f",
   "documentType": "passport_scan",
-  "status": "uploaded"
+  "status": "pending_scan"
 }
 ```
+
+`status` is always `pending_scan` in this response. The scan result is delivered later by updating the document row, not by this endpoint.
 
 **Errors**
 
@@ -473,8 +476,11 @@ The seeded products currently list no required documents, so uploads return `Doc
 | 409 | Application is locked | `http_error` |
 | 409 | A verified document of this type already exists | `http_error` |
 | 500 | Something went wrong | `internal_error` |
+| 503 | Scan service unavailable, try again | `http_error` |
 
 The multipart parser enforces the 5 MB limit before the controller runs.
+
+A `503` means the document row was saved as `pending_scan` but no scan job was queued; the row stays `pending_scan` until it is re-queued.
 
 ---
 

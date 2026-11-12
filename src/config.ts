@@ -36,6 +36,10 @@ const envSchema = z
       .string()
       .min(1, "must not be empty")
       .default("./private-uploads"),
+    REDIS_URL: z
+      .string()
+      .min(1, "must not be empty")
+      .default("redis://localhost:6379"),
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
@@ -77,6 +81,7 @@ export interface AppConfig {
   readonly stripeWebhookSecret: string | undefined;
   readonly fieldEncryptionKey: Buffer;
   readonly uploadDir: string;
+  readonly redisUrl: string;
   readonly adminPassword: string;
 }
 
@@ -129,6 +134,7 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
       fieldEncryptionKey: Buffer.from(env.FIELD_ENCRYPTION_KEY, "hex"),
       uploadDir: env.UPLOAD_DIR,
+      redisUrl: env.REDIS_URL,
       adminPassword: env.ADMIN_PASSWORD,
     }),
   };

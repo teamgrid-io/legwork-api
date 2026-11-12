@@ -9,6 +9,7 @@ import {
   visaProducts,
 } from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
+import { enqueueDocumentScan } from "../../lib/queue.js";
 import { storage } from "../../lib/storage.js";
 import { checkFile } from "./validate.js";
 
@@ -30,7 +31,7 @@ interface UploadDocumentInput {
 interface UploadedDocumentDto {
   documentId: string;
   documentType: string;
-  status: "uploaded";
+  status: "pending_scan";
 }
 
 function isDocumentType(value: string): value is DocumentType {
@@ -116,7 +117,7 @@ export async function uploadDocument(
           sha256,
           mimeType,
           sizeBytes: input.buffer.length,
-          status: "uploaded",
+          status: "pending_scan",
           uploadedAt: new Date(),
         })
         .returning({ id: documents.id });
@@ -146,9 +147,16 @@ export async function uploadDocument(
     throw error;
   }
 
+  try {
+    await enqueueDocumentScan(documentId);
+  } catch {
+    // The row is already committed as "pending_scan"; nothing is deleted.
+    throw new HttpError(503, "Scan service unavailable, try again");
+  }
+
   return {
     documentId,
     documentType: input.documentType,
-    status: "uploaded",
+    status: "pending_scan",
   };
 }

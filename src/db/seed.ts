@@ -3,8 +3,24 @@ import { db } from "./index.js";
 import { pool } from "./pool.js";
 import { countries, formFields, visaProducts, visaRules } from "./schema.js";
 
-// test data, verify before launch
-const seedDestinations = [
+// DUMMY test data, verify before launch
+interface SeedDestination {
+  iso2: string;
+  countryName: string;
+  slug: string;
+  visaProductName: string;
+  visaType: string;
+  stayDays: number;
+  processingDaysMin: number;
+  processingDaysMax: number;
+  governmentFeeCents: number;
+  legworkFeeCents: number;
+  passportIso2: string;
+  requirement: "visa_free" | "visa_required";
+  requiredDocuments: string[];
+}
+
+const seedDestinations: SeedDestination[] = [
   {
     iso2: "GE",
     countryName: "Georgia",
@@ -18,6 +34,7 @@ const seedDestinations = [
     legworkFeeCents: 3500,
     passportIso2: "IN",
     requirement: "visa_required",
+    requiredDocuments: ["applicant_photo", "passport_scan", "return_ticket"],
   },
   {
     iso2: "US",
@@ -32,6 +49,7 @@ const seedDestinations = [
     legworkFeeCents: 3500,
     passportIso2: "IN",
     requirement: "visa_required",
+    requiredDocuments: ["applicant_photo", "passport_scan", "return_ticket"],
   },
   {
     iso2: "TH",
@@ -46,6 +64,7 @@ const seedDestinations = [
     legworkFeeCents: 3500,
     passportIso2: "IN",
     requirement: "visa_required",
+    requiredDocuments: ["applicant_photo", "passport_scan", "return_ticket"],
   },
   {
     iso2: "AE",
@@ -60,6 +79,7 @@ const seedDestinations = [
     legworkFeeCents: 3500,
     passportIso2: "IN",
     requirement: "visa_required",
+    requiredDocuments: ["applicant_photo", "passport_scan", "return_ticket"],
   },
   {
     iso2: "MY",
@@ -74,8 +94,9 @@ const seedDestinations = [
     legworkFeeCents: 3500,
     passportIso2: "IN",
     requirement: "visa_required",
+    requiredDocuments: ["applicant_photo", "passport_scan", "return_ticket"],
   },
-] as const;
+];
 
 const passportCountryDetails: Record<string, { name: string; slug: string }> = {
   IN: { name: "India", slug: "india" },
@@ -136,6 +157,7 @@ async function seedVisaProduct(
       governmentFeeCents: entry.governmentFeeCents,
       legworkFeeCents: entry.legworkFeeCents,
       currency: "USD",
+      requiredDocuments: entry.requiredDocuments,
       currentFormVersion: 1,
       active: true,
     })

@@ -157,7 +157,8 @@ Table documents {
   sha256 char(64) [not null]
   mime_type text [not null, note: 'image/jpeg, image/png, application/pdf']
   size_bytes bigint [not null, note: '> 0 and <= 5242880 (5 MB)']
-  status text [not null, default: 'uploaded', note: 'uploaded, accepted, needs_fix, rejected']
+  status text [not null, default: 'uploaded', note: 'uploaded, pending_scan, verified, rejected']
+  rejection_reason text [note: 'set when status is rejected; shown to applicant']
   reviewed_by uuid [ref: > staff_users.id]
   reviewed_at timestamptz
   uploaded_at timestamptz [not null, default: `now()`]

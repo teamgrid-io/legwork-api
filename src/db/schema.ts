@@ -29,13 +29,6 @@ export const visaRequirement = pgEnum("visa_requirement", [
   "visa_required",
 ]);
 
-export const documentStatus = pgEnum("document_status", [
-  "uploaded",
-  "accepted",
-  "needs_fix",
-  "rejected",
-]);
-
 // ---------------------------------------------------------------------------
 // Reference data
 // ---------------------------------------------------------------------------
@@ -349,7 +342,8 @@ export const documents = pgTable(
     sha256: char("sha256", { length: 64 }).notNull(),
     mimeType: text("mime_type").notNull(),
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
-    status: documentStatus("status").notNull().default("uploaded"),
+    status: text("status").notNull().default("uploaded"),
+    rejectionReason: text("rejection_reason"),
     reviewedBy: uuid("reviewed_by").references(() => staffUsers.id),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true })
@@ -358,6 +352,10 @@ export const documents = pgTable(
   },
   (table) => [
     index("documents_applicant_idx").on(table.applicantId),
+    check(
+      "documents_status_check",
+      sql`${table.status} in ('uploaded', 'pending_scan', 'verified', 'rejected')`,
+    ),
     check(
       "documents_document_type_check",
       sql`${table.documentType} in ('applicant_photo', 'passport_scan', 'return_ticket')`,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   applicants,
@@ -19,8 +19,6 @@ const DOCUMENT_TYPES = [
 ] as const;
 
 type DocumentType = (typeof DOCUMENT_TYPES)[number];
-
-const REPLACEABLE_STATUSES = ["uploaded", "needs_fix"] as const;
 
 interface UploadDocumentInput {
   applicantId: string;
@@ -82,7 +80,6 @@ export async function uploadDocument(
   const existingDocuments = await db
     .select({
       id: documents.id,
-      storageKey: documents.storageKey,
       status: documents.status,
     })
     .from(documents)
@@ -93,7 +90,7 @@ export async function uploadDocument(
       ),
     );
 
-  if (existingDocuments.some((document) => document.status === "accepted")) {
+  if (existingDocuments.some((document) => document.status === "verified")) {
     throw new HttpError(409, "A verified document of this type already exists");
   }
 
@@ -103,10 +100,6 @@ export async function uploadDocument(
     input.buffer.length,
   );
   const storageKey = `${randomUUID()}.bin`;
-
-  const replaceableDocuments = existingDocuments.filter((document) =>
-    (REPLACEABLE_STATUSES as readonly string[]).includes(document.status),
-  );
 
   await storage.put(storageKey, input.buffer);
 
@@ -132,15 +125,6 @@ export async function uploadDocument(
         throw new Error("Failed to insert document");
       }
 
-      if (replaceableDocuments.length > 0) {
-        await tx.delete(documents).where(
-          inArray(
-            documents.id,
-            replaceableDocuments.map((document) => document.id),
-          ),
-        );
-      }
-
       await tx.insert(auditLogs).values({
         actorType: "customer",
         action: "document.uploaded",
@@ -160,12 +144,6 @@ export async function uploadDocument(
     });
 
     throw error;
-  }
-
-  for (const document of replaceableDocuments) {
-    await storage.delete(document.storageKey).catch(() => {
-      // The replaced row is already gone; a leftover file is harmless.
-    });
   }
 
   return {

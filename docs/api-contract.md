@@ -443,8 +443,8 @@ Purpose: Upload one required document for an applicant.
 
 - Allowed MIME types: `image/jpeg`, `image/png`, `application/pdf`.
 - JPEG, PNG, and PDF are detected from magic bytes; the declared type is not trusted.
-- A file for a type that already has an `accepted` document is rejected. `uploaded` and `needs_fix` documents are replaced.
-- Only one current file per document type is kept.
+- Document `status` is one of `uploaded`, `pending_scan`, `verified`, `rejected`. Every upload is stored as a new row with status `uploaded`.
+- A file for a type that already has a `verified` document is rejected. Otherwise the new row is added and earlier rows for the same type are kept.
 
 The seeded products currently list no required documents, so uploads return `Document not required for this destination` until a product's required documents are configured.
 
@@ -493,7 +493,7 @@ Purpose: Submit the applicant's completed full-details application.
 
 No body.
 
-A required document counts when the applicant has a document of that type with status `uploaded` or `accepted`. Documents with status `needs_fix` or `rejected` do not count.
+A required document counts only when the applicant has a document of that type with status `verified`. Documents with status `uploaded`, `pending_scan`, or `rejected` do not count.
 
 **Success — 200**
 

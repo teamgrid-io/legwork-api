@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   applicants,
@@ -327,7 +327,7 @@ export async function submitApplication(
       .where(
         and(
           eq(documents.applicantId, applicantId),
-          inArray(documents.status, ["uploaded", "accepted"]),
+          eq(documents.status, "verified"),
         ),
       );
 

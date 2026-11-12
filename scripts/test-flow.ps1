@@ -2,7 +2,13 @@ param([string]$photoPath = "C:\Users\sareh\Downloads\IMG_20250320_052311.jpg")
 $ProgressPreference = "SilentlyContinue"
 $env:PGPASSWORD = "change_me_local"
 $base = "http://localhost:4000/api/v1"
-$GE = "8af616a7-0dcc-4c90-910b-c3732cb66784"
+$GE = "$(psql -U legwork -h localhost -d legwork -t -A -c "SELECT p.id FROM visa_products p JOIN countries c ON c.id = p.destination_country_id WHERE c.iso2 = 'GE' LIMIT 1;")".Trim()
+
+if ([string]::IsNullOrWhiteSpace($GE)) {
+  Write-Host "Georgia product not found; run db:seed first"
+  exit 1
+}
+
 $rows = @()
 
 function Call($method, $url, $headers = @{}, $body = $null) {
@@ -85,8 +91,14 @@ foreach ($t in @("applicant_photo","passport_scan","return_ticket")) {
   Write-Host ("{0,-40} {1}" -f "upload $t", $(if ($pass) { "PASS" } else { "FAIL -> $out" }))
 }
 
-# 8 Submit after uploads (Step 2: uploaded documents count)
-Check "submit after uploads" (Call POST "$base/applicants/$applicantId/submit" $h) 200 "complete"
+# 8 Submit after uploads but before verification (only "verified" counts)
+Check "submit before verification" (Call POST "$base/applicants/$applicantId/submit" $h) 400 "Missing required documents"
+
+# 9 Mark the uploaded documents verified for the test applicant
+& psql -U legwork -h localhost -d legwork -q -t -A -c "UPDATE documents SET status = 'verified' WHERE applicant_id = '$applicantId';" 2>$null
+
+# 10 Submit after verification
+Check "submit after verification" (Call POST "$base/applicants/$applicantId/submit" $h) 200 "complete"
 
 $rows | Format-Table -AutoSize
 "Passed: $(($rows | Where-Object Pass).Count) of $($rows.Count)"

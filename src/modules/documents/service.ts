@@ -149,7 +149,10 @@ export async function uploadDocument(
 
   try {
     await enqueueDocumentScan(documentId);
-  } catch {
+  } catch (error) {
+    console.error(
+      `Failed to enqueue document scan: ${documentId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
     // The row is already committed as "pending_scan"; nothing is deleted.
     throw new HttpError(503, "Scan service unavailable, try again");
   }

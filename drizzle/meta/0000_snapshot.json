@@ -1,5 +1,5 @@
 {
-  "id": "42b59c43-fd52-4e31-ae73-b6c6886f7e9d",
+  "id": "f924f117-010b-4046-8c26-468fa3416bd5",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -15,41 +15,11 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "request_id": {
-          "name": "request_id",
+        "order_id": {
+          "name": "order_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "full_name": {
-          "name": "full_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "date_of_birth": {
-          "name": "date_of_birth",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "nationality_country_id": {
-          "name": "nationality_country_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "passport_number_enc": {
-          "name": "passport_number_enc",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "passport_expiry": {
-          "name": "passport_expiry",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
         },
         "sort_order": {
           "name": "sort_order",
@@ -57,14 +27,177 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "surname": {
+          "name": "surname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answers": {
+          "name": "answers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'incomplete'"
+        },
+        "submitted_at": {
+          "name": "submitted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
-        "applicants_request_idx": {
-          "name": "applicants_request_idx",
+        "applicants_order_sort_uq": {
+          "name": "applicants_order_sort_uq",
           "columns": [
             {
-              "expression": "request_id",
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sort_order",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "applicants_order_id_orders_id_fk": {
+          "name": "applicants_order_id_orders_id_fk",
+          "tableFrom": "applicants",
+          "tableTo": "orders",
+          "columnsFrom": [
+            "order_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "applicants_sort_order_check": {
+          "name": "applicants_sort_order_check",
+          "value": "\"applicants\".\"sort_order\" >= 1"
+        },
+        "applicants_status_check": {
+          "name": "applicants_status_check",
+          "value": "\"applicants\".\"status\" in ('incomplete', 'documents_pending', 'complete', 'under_review', 'approved', 'rejected')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.audit_logs": {
+      "name": "audit_logs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "audit_logs_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "audit_logs_entity_idx": {
+          "name": "audit_logs_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -76,41 +209,14 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "applicants_request_id_requests_id_fk": {
-          "name": "applicants_request_id_requests_id_fk",
-          "tableFrom": "applicants",
-          "tableTo": "requests",
-          "columnsFrom": [
-            "request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "applicants_nationality_country_id_countries_id_fk": {
-          "name": "applicants_nationality_country_id_countries_id_fk",
-          "tableFrom": "applicants",
-          "tableTo": "countries",
-          "columnsFrom": [
-            "nationality_country_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "applicants_sort_order_check": {
-          "name": "applicants_sort_order_check",
-          "value": "\"applicants\".\"sort_order\" >= 1"
+        "audit_logs_actor_type_check": {
+          "name": "audit_logs_actor_type_check",
+          "value": "\"audit_logs\".\"actor_type\" in ('customer', 'staff', 'system', 'stripe')"
         }
       },
       "isRLSEnabled": false
@@ -168,6 +274,90 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.customers": {
+      "name": "customers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activation_token_hash": {
+          "name": "activation_token_hash",
+          "type": "char(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activation_expires_at": {
+          "name": "activation_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activated_at": {
+          "name": "activated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "customers_email_unique": {
+          "name": "customers_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        },
+        "customers_activation_token_hash_unique": {
+          "name": "customers_activation_token_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "activation_token_hash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.documents": {
       "name": "documents",
       "schema": "",
@@ -179,20 +369,14 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "request_id": {
-          "name": "request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "applicant_id": {
           "name": "applicant_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "kind": {
-          "name": "kind",
+        "document_type": {
+          "name": "document_type",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -223,11 +407,16 @@
         },
         "status": {
           "name": "status",
-          "type": "document_status",
-          "typeSchema": "public",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "default": "'uploaded'"
+        },
+        "rejection_reason": {
+          "name": "rejection_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "reviewed_by": {
           "name": "reviewed_by",
@@ -247,20 +436,14 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "delete_after": {
-          "name": "delete_after",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "documents_request_idx": {
-          "name": "documents_request_idx",
+        "documents_applicant_idx": {
+          "name": "documents_applicant_idx",
           "columns": [
             {
-              "expression": "request_id",
+              "expression": "applicant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -273,19 +456,6 @@
         }
       },
       "foreignKeys": {
-        "documents_request_id_requests_id_fk": {
-          "name": "documents_request_id_requests_id_fk",
-          "tableFrom": "documents",
-          "tableTo": "requests",
-          "columnsFrom": [
-            "request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "documents_applicant_id_applicants_id_fk": {
           "name": "documents_applicant_id_applicants_id_fk",
           "tableFrom": "documents",
@@ -325,6 +495,18 @@
       },
       "policies": {},
       "checkConstraints": {
+        "documents_status_check": {
+          "name": "documents_status_check",
+          "value": "\"documents\".\"status\" in ('uploaded', 'pending_scan', 'verified', 'rejected')"
+        },
+        "documents_document_type_check": {
+          "name": "documents_document_type_check",
+          "value": "\"documents\".\"document_type\" in ('applicant_photo', 'passport_scan', 'return_ticket')"
+        },
+        "documents_mime_type_check": {
+          "name": "documents_mime_type_check",
+          "value": "\"documents\".\"mime_type\" in ('image/jpeg', 'image/png', 'application/pdf')"
+        },
         "documents_size_bytes_check": {
           "name": "documents_size_bytes_check",
           "value": "\"documents\".\"size_bytes\" > 0 AND \"documents\".\"size_bytes\" <= 5242880"
@@ -332,8 +514,8 @@
       },
       "isRLSEnabled": false
     },
-    "public.fee_versions": {
-      "name": "fee_versions",
+    "public.form_fields": {
+      "name": "form_fields",
       "schema": "",
       "columns": {
         "id": {
@@ -349,48 +531,73 @@
           "primaryKey": false,
           "notNull": true
         },
-        "government_fee_cents": {
-          "name": "government_fee_cents",
+        "form_version": {
+          "name": "form_version",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "legwork_fee_cents": {
-          "name": "legwork_fee_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "currency": {
-          "name": "currency",
-          "type": "char(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'USD'"
-        },
-        "effective_from": {
-          "name": "effective_from",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
+        "step": {
+          "name": "step",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
+        "group_key": {
+          "name": "group_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field_key": {
+          "name": "field_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field_type": {
+          "name": "field_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "required": {
+          "name": "required",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "default": false
+        },
+        "options": {
+          "name": "options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "visible_if": {
+          "name": "visible_if",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
-        "fee_versions_product_date_uq": {
-          "name": "fee_versions_product_date_uq",
+        "form_fields_version_key_uq": {
+          "name": "form_fields_version_key_uq",
           "columns": [
             {
               "expression": "visa_product_id",
@@ -399,7 +606,13 @@
               "nulls": "last"
             },
             {
-              "expression": "effective_from",
+              "expression": "form_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "field_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -409,12 +622,45 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "form_fields_order_idx": {
+          "name": "form_fields_order_idx",
+          "columns": [
+            {
+              "expression": "visa_product_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "form_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "step",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sort_order",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
-        "fee_versions_visa_product_id_visa_products_id_fk": {
-          "name": "fee_versions_visa_product_id_visa_products_id_fk",
-          "tableFrom": "fee_versions",
+        "form_fields_visa_product_id_visa_products_id_fk": {
+          "name": "form_fields_visa_product_id_visa_products_id_fk",
+          "tableFrom": "form_fields",
           "tableTo": "visa_products",
           "columnsFrom": [
             "visa_product_id"
@@ -430,19 +676,23 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "fee_versions_government_fee_cents_check": {
-          "name": "fee_versions_government_fee_cents_check",
-          "value": "\"fee_versions\".\"government_fee_cents\" >= 0"
+        "form_fields_step_check": {
+          "name": "form_fields_step_check",
+          "value": "\"form_fields\".\"step\" in ('basic', 'full')"
         },
-        "fee_versions_legwork_fee_cents_check": {
-          "name": "fee_versions_legwork_fee_cents_check",
-          "value": "\"fee_versions\".\"legwork_fee_cents\" >= 0"
+        "form_fields_group_key_check": {
+          "name": "form_fields_group_key_check",
+          "value": "\"form_fields\".\"group_key\" in ('account', 'personal', 'contact', 'passport', 'spouse', 'travel', 'declaration')"
+        },
+        "form_fields_field_type_check": {
+          "name": "form_fields_field_type_check",
+          "value": "\"form_fields\".\"field_type\" in ('text', 'email', 'phone', 'date', 'select', 'radio', 'checkbox', 'country')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.request_events": {
-      "name": "request_events",
+    "public.order_events": {
+      "name": "order_events",
       "schema": "",
       "columns": {
         "id": {
@@ -452,7 +702,7 @@
           "notNull": true,
           "identity": {
             "type": "always",
-            "name": "request_events_id_seq",
+            "name": "order_events_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -462,30 +712,27 @@
             "cycle": false
           }
         },
-        "request_id": {
-          "name": "request_id",
+        "order_id": {
+          "name": "order_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
         "from_status": {
           "name": "from_status",
-          "type": "request_status",
-          "typeSchema": "public",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "to_status": {
           "name": "to_status",
-          "type": "request_status",
-          "typeSchema": "public",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "actor_type": {
           "name": "actor_type",
-          "type": "actor_type",
-          "typeSchema": "public",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -510,11 +757,11 @@
         }
       },
       "indexes": {
-        "request_events_request_time_idx": {
-          "name": "request_events_request_time_idx",
+        "order_events_order_time_idx": {
+          "name": "order_events_order_time_idx",
           "columns": [
             {
-              "expression": "request_id",
+              "expression": "order_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -533,12 +780,12 @@
         }
       },
       "foreignKeys": {
-        "request_events_request_id_requests_id_fk": {
-          "name": "request_events_request_id_requests_id_fk",
-          "tableFrom": "request_events",
-          "tableTo": "requests",
+        "order_events_order_id_orders_id_fk": {
+          "name": "order_events_order_id_orders_id_fk",
+          "tableFrom": "order_events",
+          "tableTo": "orders",
           "columnsFrom": [
-            "request_id"
+            "order_id"
           ],
           "columnsTo": [
             "id"
@@ -550,11 +797,24 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "order_events_from_status_check": {
+          "name": "order_events_from_status_check",
+          "value": "\"order_events\".\"from_status\" is null or \"order_events\".\"from_status\" in ('paid', 'in_review', 'needs_info', 'ready_to_submit', 'submitted', 'completed', 'cancelled')"
+        },
+        "order_events_to_status_check": {
+          "name": "order_events_to_status_check",
+          "value": "\"order_events\".\"to_status\" in ('paid', 'in_review', 'needs_info', 'ready_to_submit', 'submitted', 'completed', 'cancelled')"
+        },
+        "order_events_actor_type_check": {
+          "name": "order_events_actor_type_check",
+          "value": "\"order_events\".\"actor_type\" in ('customer', 'staff', 'system', 'stripe')"
+        }
+      },
       "isRLSEnabled": false
     },
-    "public.requests": {
-      "name": "requests",
+    "public.order_items": {
+      "name": "order_items",
       "schema": "",
       "columns": {
         "id": {
@@ -564,44 +824,39 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "reference": {
-          "name": "reference",
+        "order_id": {
+          "name": "order_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_type": {
+          "name": "item_type",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "status_token_hash": {
-          "name": "status_token_hash",
-          "type": "char(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "visa_product_id": {
-          "name": "visa_product_id",
-          "type": "uuid",
+        "description": {
+          "name": "description",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "destination_country_id": {
-          "name": "destination_country_id",
-          "type": "uuid",
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 1
         },
-        "passport_country_id": {
-          "name": "passport_country_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "government_fee_cents": {
-          "name": "government_fee_cents",
+        "unit_amount_cents": {
+          "name": "unit_amount_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "legwork_fee_cents": {
-          "name": "legwork_fee_cents",
+        "total_amount_cents": {
+          "name": "total_amount_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -612,64 +867,99 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'USD'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "order_items_order_id_orders_id_fk": {
+          "name": "order_items_order_id_orders_id_fk",
+          "tableFrom": "order_items",
+          "tableTo": "orders",
+          "columnsFrom": [
+            "order_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "order_items_item_type_check": {
+          "name": "order_items_item_type_check",
+          "value": "\"order_items\".\"item_type\" in ('government_fee', 'service_fee', 'tax', 'adjustment')"
         },
-        "amount_cents": {
-          "name": "amount_cents",
-          "type": "integer",
+        "order_items_quantity_check": {
+          "name": "order_items_quantity_check",
+          "value": "\"order_items\".\"quantity\" >= 1"
+        },
+        "order_items_unit_amount_cents_check": {
+          "name": "order_items_unit_amount_cents_check",
+          "value": "\"order_items\".\"unit_amount_cents\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.orders": {
+      "name": "orders",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "order_number": {
+          "name": "order_number",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "status": {
-          "name": "status",
-          "type": "request_status",
-          "typeSchema": "public",
+        "pending_checkout_id": {
+          "name": "pending_checkout_id",
+          "type": "uuid",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'requested'"
+          "notNull": true
         },
-        "side_state": {
-          "name": "side_state",
-          "type": "request_side_state",
-          "typeSchema": "public",
+        "customer_id": {
+          "name": "customer_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
-        "estimated_ready_date": {
-          "name": "estimated_ready_date",
-          "type": "date",
+        "visa_product_id": {
+          "name": "visa_product_id",
+          "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "payment_status": {
-          "name": "payment_status",
-          "type": "payment_status",
-          "typeSchema": "public",
+        "passport_country_id": {
+          "name": "passport_country_id",
+          "type": "uuid",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'unpaid'"
+          "notNull": true
         },
-        "payment_provider": {
-          "name": "payment_provider",
-          "type": "payment_provider",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stripe_checkout_session_id": {
-          "name": "stripe_checkout_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "paid_at": {
-          "name": "paid_at",
-          "type": "timestamp with time zone",
+        "origin_country_id": {
+          "name": "origin_country_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
         "travel_date": {
           "name": "travel_date",
           "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "traveller_count": {
+          "name": "traveller_count",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
@@ -684,6 +974,38 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "form_version": {
+          "name": "form_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_cents": {
+          "name": "amount_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'paid'"
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -701,8 +1023,8 @@
         }
       },
       "indexes": {
-        "requests_status_travel_idx": {
-          "name": "requests_status_travel_idx",
+        "orders_status_travel_idx": {
+          "name": "orders_status_travel_idx",
           "columns": [
             {
               "expression": "status",
@@ -722,29 +1044,8 @@
           "method": "btree",
           "with": {}
         },
-        "requests_payment_created_idx": {
-          "name": "requests_payment_created_idx",
-          "columns": [
-            {
-              "expression": "payment_status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "requests_email_idx": {
-          "name": "requests_email_idx",
+        "orders_email_idx": {
+          "name": "orders_email_idx",
           "columns": [
             {
               "expression": "contact_email",
@@ -760,9 +1061,35 @@
         }
       },
       "foreignKeys": {
-        "requests_visa_product_id_visa_products_id_fk": {
-          "name": "requests_visa_product_id_visa_products_id_fk",
-          "tableFrom": "requests",
+        "orders_pending_checkout_id_pending_checkouts_id_fk": {
+          "name": "orders_pending_checkout_id_pending_checkouts_id_fk",
+          "tableFrom": "orders",
+          "tableTo": "pending_checkouts",
+          "columnsFrom": [
+            "pending_checkout_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "orders_customer_id_customers_id_fk": {
+          "name": "orders_customer_id_customers_id_fk",
+          "tableFrom": "orders",
+          "tableTo": "customers",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "orders_visa_product_id_visa_products_id_fk": {
+          "name": "orders_visa_product_id_visa_products_id_fk",
+          "tableFrom": "orders",
           "tableTo": "visa_products",
           "columnsFrom": [
             "visa_product_id"
@@ -773,12 +1100,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "requests_destination_country_id_countries_id_fk": {
-          "name": "requests_destination_country_id_countries_id_fk",
-          "tableFrom": "requests",
+        "orders_passport_country_id_countries_id_fk": {
+          "name": "orders_passport_country_id_countries_id_fk",
+          "tableFrom": "orders",
           "tableTo": "countries",
           "columnsFrom": [
-            "destination_country_id"
+            "passport_country_id"
           ],
           "columnsTo": [
             "id"
@@ -786,12 +1113,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "requests_passport_country_id_countries_id_fk": {
-          "name": "requests_passport_country_id_countries_id_fk",
-          "tableFrom": "requests",
+        "orders_origin_country_id_countries_id_fk": {
+          "name": "orders_origin_country_id_countries_id_fk",
+          "tableFrom": "orders",
           "tableTo": "countries",
           "columnsFrom": [
-            "passport_country_id"
+            "origin_country_id"
           ],
           "columnsTo": [
             "id"
@@ -802,41 +1129,263 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "requests_reference_unique": {
-          "name": "requests_reference_unique",
+        "orders_order_number_unique": {
+          "name": "orders_order_number_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "reference"
+            "order_number"
           ]
         },
-        "requests_status_token_hash_unique": {
-          "name": "requests_status_token_hash_unique",
+        "orders_pending_checkout_id_unique": {
+          "name": "orders_pending_checkout_id_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "status_token_hash"
-          ]
-        },
-        "requests_stripe_checkout_session_id_unique": {
-          "name": "requests_stripe_checkout_session_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "stripe_checkout_session_id"
+            "pending_checkout_id"
           ]
         }
       },
       "policies": {},
       "checkConstraints": {
-        "requests_amount_cents_check": {
-          "name": "requests_amount_cents_check",
-          "value": "\"requests\".\"amount_cents\" > 0"
+        "orders_traveller_count_check": {
+          "name": "orders_traveller_count_check",
+          "value": "\"orders\".\"traveller_count\" between 1 and 2"
         },
-        "requests_government_fee_cents_check": {
-          "name": "requests_government_fee_cents_check",
-          "value": "\"requests\".\"government_fee_cents\" >= 0"
+        "orders_amount_cents_check": {
+          "name": "orders_amount_cents_check",
+          "value": "\"orders\".\"amount_cents\" > 0"
         },
-        "requests_legwork_fee_cents_check": {
-          "name": "requests_legwork_fee_cents_check",
-          "value": "\"requests\".\"legwork_fee_cents\" >= 0"
+        "orders_status_check": {
+          "name": "orders_status_check",
+          "value": "\"orders\".\"status\" in ('paid', 'in_review', 'needs_info', 'ready_to_submit', 'submitted', 'completed', 'cancelled')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.pending_checkouts": {
+      "name": "pending_checkouts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "reference": {
+          "name": "reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "visa_product_id": {
+          "name": "visa_product_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "passport_country_id": {
+          "name": "passport_country_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin_country_id": {
+          "name": "origin_country_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "travel_date": {
+          "name": "travel_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "traveller_count": {
+          "name": "traveller_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "travellers": {
+          "name": "travellers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_email": {
+          "name": "contact_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_phone": {
+          "name": "contact_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "form_version": {
+          "name": "form_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "government_fee_cents": {
+          "name": "government_fee_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "legwork_fee_cents": {
+          "name": "legwork_fee_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_cents": {
+          "name": "amount_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "stripe_session_id": {
+          "name": "stripe_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "pending_checkouts_status_idx": {
+          "name": "pending_checkouts_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "pending_checkouts_visa_product_id_visa_products_id_fk": {
+          "name": "pending_checkouts_visa_product_id_visa_products_id_fk",
+          "tableFrom": "pending_checkouts",
+          "tableTo": "visa_products",
+          "columnsFrom": [
+            "visa_product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "pending_checkouts_passport_country_id_countries_id_fk": {
+          "name": "pending_checkouts_passport_country_id_countries_id_fk",
+          "tableFrom": "pending_checkouts",
+          "tableTo": "countries",
+          "columnsFrom": [
+            "passport_country_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "pending_checkouts_origin_country_id_countries_id_fk": {
+          "name": "pending_checkouts_origin_country_id_countries_id_fk",
+          "tableFrom": "pending_checkouts",
+          "tableTo": "countries",
+          "columnsFrom": [
+            "origin_country_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "pending_checkouts_reference_unique": {
+          "name": "pending_checkouts_reference_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "reference"
+          ]
+        },
+        "pending_checkouts_stripe_session_id_unique": {
+          "name": "pending_checkouts_stripe_session_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stripe_session_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "pending_checkouts_traveller_count_check": {
+          "name": "pending_checkouts_traveller_count_check",
+          "value": "\"pending_checkouts\".\"traveller_count\" between 1 and 2"
+        },
+        "pending_checkouts_government_fee_cents_check": {
+          "name": "pending_checkouts_government_fee_cents_check",
+          "value": "\"pending_checkouts\".\"government_fee_cents\" >= 0"
+        },
+        "pending_checkouts_legwork_fee_cents_check": {
+          "name": "pending_checkouts_legwork_fee_cents_check",
+          "value": "\"pending_checkouts\".\"legwork_fee_cents\" >= 0"
+        },
+        "pending_checkouts_amount_cents_check": {
+          "name": "pending_checkouts_amount_cents_check",
+          "value": "\"pending_checkouts\".\"amount_cents\" > 0"
+        },
+        "pending_checkouts_status_check": {
+          "name": "pending_checkouts_status_check",
+          "value": "\"pending_checkouts\".\"status\" in ('open', 'paid', 'expired')"
         }
       },
       "isRLSEnabled": false
@@ -872,8 +1421,7 @@
         },
         "role": {
           "name": "role",
-          "type": "staff_role",
-          "typeSchema": "public",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -883,6 +1431,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "mfa_enabled": {
+          "name": "mfa_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "mfa_secret_enc": {
+          "name": "mfa_secret_enc",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -898,7 +1459,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "staff_users_role_check": {
+          "name": "staff_users_role_check",
+          "value": "\"staff_users\".\"role\" in ('admin', 'agent')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.visa_products": {
@@ -918,16 +1484,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "route": {
-          "name": "route",
-          "type": "route_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'complete'"
-        },
         "name": {
           "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "visa_type": {
+          "name": "visa_type",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -950,19 +1514,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "passport_validity_months": {
-          "name": "passport_validity_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "required_documents": {
-          "name": "required_documents",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
         "government_fee_cents": {
           "name": "government_fee_cents",
           "type": "integer",
@@ -982,6 +1533,20 @@
           "notNull": true,
           "default": "'USD'"
         },
+        "required_documents": {
+          "name": "required_documents",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "current_form_version": {
+          "name": "current_form_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
         "active": {
           "name": "active",
           "type": "boolean",
@@ -990,29 +1555,7 @@
           "default": true
         }
       },
-      "indexes": {
-        "visa_products_country_route_uq": {
-          "name": "visa_products_country_route_uq",
-          "columns": [
-            {
-              "expression": "destination_country_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "route",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "visa_products_destination_country_id_countries_id_fk": {
           "name": "visa_products_destination_country_id_countries_id_fk",
@@ -1032,9 +1575,13 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "visa_products_visa_type_check": {
+          "name": "visa_products_visa_type_check",
+          "value": "\"visa_products\".\"visa_type\" in ('single_entry', 'multiple_entry')"
+        },
         "visa_products_processing_days_check": {
           "name": "visa_products_processing_days_check",
-          "value": "\"visa_products\".\"processing_days_min\" <= \"visa_products\".\"processing_days_max\""
+          "value": "\"visa_products\".\"processing_days_max\" >= \"visa_products\".\"processing_days_min\""
         },
         "visa_products_government_fee_cents_check": {
           "name": "visa_products_government_fee_cents_check",
@@ -1143,86 +1690,6 @@
     }
   },
   "enums": {
-    "public.actor_type": {
-      "name": "actor_type",
-      "schema": "public",
-      "values": [
-        "traveller",
-        "specialist",
-        "system",
-        "stripe"
-      ]
-    },
-    "public.document_status": {
-      "name": "document_status",
-      "schema": "public",
-      "values": [
-        "uploaded",
-        "accepted",
-        "needs_fix",
-        "rejected"
-      ]
-    },
-    "public.payment_provider": {
-      "name": "payment_provider",
-      "schema": "public",
-      "values": [
-        "stripe",
-        "dummy"
-      ]
-    },
-    "public.payment_status": {
-      "name": "payment_status",
-      "schema": "public",
-      "values": [
-        "unpaid",
-        "paid"
-      ]
-    },
-    "public.request_side_state": {
-      "name": "request_side_state",
-      "schema": "public",
-      "values": [
-        "needs_info",
-        "not_eligible",
-        "refused",
-        "payment_due",
-        "cancelled",
-        "abandoned"
-      ]
-    },
-    "public.request_status": {
-      "name": "request_status",
-      "schema": "public",
-      "values": [
-        "requested",
-        "confirmed",
-        "paid",
-        "documents_in",
-        "in_review",
-        "filed",
-        "guide_sent",
-        "delivered",
-        "closed"
-      ]
-    },
-    "public.route_type": {
-      "name": "route_type",
-      "schema": "public",
-      "values": [
-        "complete",
-        "guided"
-      ]
-    },
-    "public.staff_role": {
-      "name": "staff_role",
-      "schema": "public",
-      "values": [
-        "editor",
-        "specialist",
-        "admin"
-      ]
-    },
     "public.visa_requirement": {
       "name": "visa_requirement",
       "schema": "public",

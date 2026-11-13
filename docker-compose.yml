@@ -1,0 +1,31 @@
+# Local development infrastructure.
+#
+#   docker compose up -d
+#
+# Redis is the only required service: the API uses it as the BullMQ producer
+# and the document scan worker consumes from it. The API and worker both
+# default to redis://localhost:6379 in development, so no extra configuration
+# is needed.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    # noeviction is required by BullMQ: queued jobs must never be evicted.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  redis-data:

@@ -10,7 +10,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     # noeviction is required by BullMQ: queued jobs must never be evicted.
     command:
       - redis-server

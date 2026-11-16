@@ -49,7 +49,10 @@ export async function stripeWebhookController(
     event.type === "checkout.session.completed" &&
     event.data.object.payment_status === "paid"
   ) {
-    await completePendingCheckout(event.data.object.id);
+    await completePendingCheckout(event.data.object.id, {
+      amountCents: event.data.object.amount_total,
+      currency: event.data.object.currency,
+    });
   }
 
   res.status(200).json({ received: true });

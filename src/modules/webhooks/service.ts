@@ -17,8 +17,14 @@ function generateOrderNumber(): string {
   return `VISA-${year}-${suffix}`;
 }
 
+interface ExpectedPayment {
+  amountCents: number | null;
+  currency: string | null;
+}
+
 export async function completePendingCheckout(
   sessionId: string,
+  payment?: ExpectedPayment,
 ): Promise<{ orderNumber: string; created: boolean }> {
   const result = await db.transaction(async (tx) => {
     const [checkout] = await tx
@@ -76,6 +82,20 @@ export async function completePendingCheckout(
         ok: false as const,
         error: new HttpError(409, "Checkout expired"),
       };
+    }
+
+    if (payment) {
+      const amountMatches = payment.amountCents === checkout.amountCents;
+      const currencyMatches =
+        payment.currency !== null &&
+        payment.currency.toUpperCase() === checkout.currency.toUpperCase();
+
+      if (!amountMatches || !currencyMatches) {
+        console.error(
+          `Payment does not match pending checkout: ${checkout.reference}`,
+        );
+        throw new HttpError(409, "Payment does not match pending checkout");
+      }
     }
 
     const [markedPaid] = await tx

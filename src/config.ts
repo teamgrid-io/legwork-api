@@ -18,7 +18,7 @@ const envSchema = z
       .int("must be an integer")
       .min(1, "must be between 1 and 65535")
       .max(65535, "must be between 1 and 65535")
-      .default(3000),
+      .default(4000),
     DATABASE_URL: z.string({ error: "is required" }).min(1, "is required"),
     WEB_URL: z
       .string({ error: "is required" })
@@ -28,6 +28,15 @@ const envSchema = z
       error: "must be 'stripe' or 'dummy'",
     }),
     STRIPE_SECRET_KEY: z.string().min(1, "must not be empty").optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1, "must not be empty").optional(),
+    FIELD_ENCRYPTION_KEY: z
+      .string({ error: "is required" })
+      .regex(/^[0-9a-f]{64}$/i, "must be a 64-character hex string"),
+    UPLOAD_DIR: z
+      .string()
+      .min(1, "must not be empty")
+      .default("./private-uploads"),
+    REDIS_URL: z.string().min(1, "must not be empty").optional(),
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
@@ -41,11 +50,27 @@ const envSchema = z
       });
     }
 
+    if (env.PAYMENT_PROVIDER === "stripe" && !env.STRIPE_WEBHOOK_SECRET) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["STRIPE_WEBHOOK_SECRET"],
+        message: "is required when PAYMENT_PROVIDER is 'stripe'",
+      });
+    }
+
     if (env.PAYMENT_PROVIDER === "dummy" && env.NODE_ENV === "production") {
       ctx.addIssue({
         code: "custom",
         path: ["PAYMENT_PROVIDER"],
         message: "cannot be 'dummy' when NODE_ENV is 'production'",
+      });
+    }
+
+    if (env.NODE_ENV === "production" && !env.REDIS_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["REDIS_URL"],
+        message: "is required when NODE_ENV is 'production'",
       });
     }
   });
@@ -58,6 +83,10 @@ export interface AppConfig {
   readonly webUrl: string;
   readonly paymentProvider: "stripe" | "dummy";
   readonly stripeSecretKey: string | undefined;
+  readonly stripeWebhookSecret: string | undefined;
+  readonly fieldEncryptionKey: Buffer;
+  readonly uploadDir: string;
+  readonly redisUrl: string;
   readonly adminPassword: string;
 }
 
@@ -107,6 +136,10 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       webUrl: env.WEB_URL,
       paymentProvider: env.PAYMENT_PROVIDER,
       stripeSecretKey: env.STRIPE_SECRET_KEY,
+      stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+      fieldEncryptionKey: Buffer.from(env.FIELD_ENCRYPTION_KEY, "hex"),
+      uploadDir: env.UPLOAD_DIR,
+      redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
       adminPassword: env.ADMIN_PASSWORD,
     }),
   };

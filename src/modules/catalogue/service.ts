@@ -12,11 +12,10 @@ export interface CountryDto {
 export interface ProductDto {
   id: string;
   name: string;
-  route: "complete" | "guided";
+  visaType: string;
   stayDays: number | null;
   processingDaysMin: number;
   processingDaysMax: number;
-  passportValidityMonths: number | null;
   requiredDocuments: string[];
   governmentFeeCents: number;
   legworkFeeCents: number;
@@ -25,10 +24,10 @@ export interface ProductDto {
 }
 
 export interface VisaCheckProductDto {
+  visaType: string;
   stayDays: number | null;
   processingDaysMin: number;
   processingDaysMax: number;
-  passportValidityMonths: number | null;
   requiredDocuments: string[];
   totalPerTravellerCents: number;
   currency: string;
@@ -69,11 +68,10 @@ export async function listProductsForCountry(
     .select({
       id: visaProducts.id,
       name: visaProducts.name,
-      route: visaProducts.route,
+      visaType: visaProducts.visaType,
       stayDays: visaProducts.stayDays,
       processingDaysMin: visaProducts.processingDaysMin,
       processingDaysMax: visaProducts.processingDaysMax,
-      passportValidityMonths: visaProducts.passportValidityMonths,
       requiredDocuments: sql<string[]>`${visaProducts.requiredDocuments}`,
       governmentFeeCents: visaProducts.governmentFeeCents,
       legworkFeeCents: visaProducts.legworkFeeCents,
@@ -87,7 +85,7 @@ export async function listProductsForCountry(
         eq(visaProducts.active, true),
       ),
     )
-    .orderBy(asc(visaProducts.route));
+    .orderBy(asc(visaProducts.name));
 }
 
 export async function checkVisa(
@@ -138,10 +136,10 @@ export async function checkVisa(
   if (rule.requirement === "visa_required") {
     const [product] = await db
       .select({
+        visaType: visaProducts.visaType,
         stayDays: visaProducts.stayDays,
         processingDaysMin: visaProducts.processingDaysMin,
         processingDaysMax: visaProducts.processingDaysMax,
-        passportValidityMonths: visaProducts.passportValidityMonths,
         requiredDocuments: sql<string[]>`${visaProducts.requiredDocuments}`,
         totalPerTravellerCents: sql<number>`${visaProducts.governmentFeeCents} + ${visaProducts.legworkFeeCents}`,
         currency: visaProducts.currency,
@@ -150,7 +148,6 @@ export async function checkVisa(
       .where(
         and(
           eq(visaProducts.destinationCountryId, destinationCountry.id),
-          eq(visaProducts.route, "complete"),
           eq(visaProducts.active, true),
         ),
       )

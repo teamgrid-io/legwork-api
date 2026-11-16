@@ -16,6 +16,13 @@ const applicantSchema = z
       .date({ error: "dateOfBirth must be a valid YYYY-MM-DD date" })
       .optional(),
     nationalityIso2: iso2Schema.optional(),
+    gender: z.enum(["male", "female", "other"], {
+      error: "gender must be male, female, or other",
+    }),
+    maritalStatus: z.enum(["single", "married", "divorced", "widowed"], {
+      error:
+        "maritalStatus must be single, married, divorced, or widowed",
+    }),
   })
   .strict();
 

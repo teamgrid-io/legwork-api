@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from "express";
+import { MulterError } from "multer";
 import { ZodError } from "zod";
 import { HttpError } from "../lib/errors.js";
 
@@ -30,6 +31,20 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 
   // Malformed JSON body from express.json().
   if (err instanceof SyntaxError && "body" in err) {
+    res
+      .status(400)
+      .json({ error: "Invalid request data", code: "validation_error" });
+    return;
+  }
+
+  // Multer rejects the multipart body before the controller runs. These are
+  // client errors, so they are not logged and never reach the 500 fallback.
+  if (err instanceof MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      res.status(400).json({ error: "Invalid file size", code: "http_error" });
+      return;
+    }
+
     res
       .status(400)
       .json({ error: "Invalid request data", code: "validation_error" });

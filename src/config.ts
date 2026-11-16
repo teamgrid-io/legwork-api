@@ -18,7 +18,7 @@ const envSchema = z
       .int("must be an integer")
       .min(1, "must be between 1 and 65535")
       .max(65535, "must be between 1 and 65535")
-      .default(3000),
+      .default(4000),
     DATABASE_URL: z.string({ error: "is required" }).min(1, "is required"),
     WEB_URL: z
       .string({ error: "is required" })

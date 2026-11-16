@@ -258,6 +258,8 @@ The body is strict: extra fields are rejected. Amounts, fees, and status are not
 
 Purpose: Create a payment checkout session for a pending request.
 
+A repeated call for a pending checkout that already has an open Stripe session returns the same URL and does not create a new session.
+
 - **Auth:** none
 
 **Request**
@@ -274,6 +276,8 @@ No body.
 { "url": "https://app.example.com/thank-you?session_id=dummy_0f1e2d3c-4b5a-6978-8c9d-0e1f2a3b4c5d" }
 ```
 
+If the stored Stripe session has already been paid, the endpoint returns 409. The order is created when the payment webhook runs, so it may not exist yet at that moment.
+
 **Errors**
 
 | Status | Message | Code |
@@ -283,6 +287,9 @@ No body.
 | 409 | Checkout is already paid | `http_error` |
 | 409 | Checkout has expired | `http_error` |
 | 500 | Something went wrong | `internal_error` |
+| 503 | Payment service unavailable, try again | `http_error` |
+
+Planned, not implemented: Stripe sessions do not yet expire together with the 30-minute application checkout window. Until that is built, a Stripe session can outlive the application's expiry.
 
 ---
 

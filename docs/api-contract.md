@@ -101,6 +101,8 @@ Purpose: List the active visa products for a destination country.
 | --- | --- | --- | --- | --- |
 | Path | `iso2` | string | yes | Destination country code. Case-insensitive; uppercased by the server. |
 
+Sorted by `name`.
+
 **Success — 200**
 
 ```json
@@ -202,6 +204,8 @@ Purpose: Create a pending checkout from the basic traveller details.
 | `applicants[].nationalityIso2` | string | no | 2-letter country code. |
 | `applicants[].gender` | string | yes | `male`, `female`, or `other`. |
 | `applicants[].maritalStatus` | string | yes | `single`, `married`, `divorced`, or `widowed`. |
+| `visaProductId` | string (UUID) | no | The product the customer chose, from `GET /products/:iso2`. Must be active and belong to `destinationIso2`. If omitted, the first active product by name is used. |
+
 
 The body is strict: extra fields are rejected. Amounts, fees, and status are not accepted.
 

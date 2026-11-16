@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   countries,
@@ -93,6 +93,15 @@ export async function createRequest(
     throw new HttpError(400, "travelDate must be in the future");
   }
 
+  const productFilters = [
+    eq(visaProducts.destinationCountryId, destinationCountry.id),
+    eq(visaProducts.active, true),
+  ];
+
+  if (input.visaProductId) {
+    productFilters.push(eq(visaProducts.id, input.visaProductId));
+  }
+
   const [product] = await db
     .select({
       id: visaProducts.id,
@@ -102,12 +111,8 @@ export async function createRequest(
       currentFormVersion: visaProducts.currentFormVersion,
     })
     .from(visaProducts)
-    .where(
-      and(
-        eq(visaProducts.destinationCountryId, destinationCountry.id),
-        eq(visaProducts.active, true),
-      ),
-    )
+    .where(and(...productFilters))
+    .orderBy(asc(visaProducts.name))
     .limit(1);
 
   if (!product) {

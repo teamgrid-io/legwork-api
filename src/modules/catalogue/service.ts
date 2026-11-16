@@ -151,6 +151,7 @@ export async function checkVisa(
           eq(visaProducts.active, true),
         ),
       )
+      .orderBy(asc(visaProducts.name))
       .limit(1);
 
     return {

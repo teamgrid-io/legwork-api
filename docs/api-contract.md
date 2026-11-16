@@ -1,6 +1,42 @@
 # Traveller API contract
 
-Base URL: `/api/v1` (for example `https://<host>/api/v1`). Every endpoint below is relative to that prefix.
+## Base URLs
+
+Every endpoint below is relative to the `/api/v1` prefix.
+
+| Environment | Base URL | Notes |
+| --- | --- | --- |
+| Local | `http://localhost:4000/api/v1` | `npm run dev`, or `npm run build`. The port comes from `PORT` (default `4000`;)
+
+Health check (no prefix): `GET /health` returns `{ "status": "ok", "uptimeSeconds": <n>, "timestamp": "<iso>" }`.
+
+## Environment setup
+
+Prerequisites: Node.js, Docker (for local Redis), and PostgreSQL.
+
+1. `npm install`
+2. `docker compose up -d` — starts Redis on `localhost:6379` with persistence and `maxmemory-policy noeviction` (required by BullMQ).
+3. Create `.env` in the repository root. Variables are listed below.
+4. `npm run db:migrate` — applies `drizzle/0000_init.sql`.
+5. `npm run db:seed` — seeds countries, visa rules, products, and the full-details form fields.
+6. `npm run dev` — API on `http://localhost:4000`.
+7. `npm run worker` — document scan worker, in a **separate terminal**. Uploads stay `pending_scan` until this process runs.
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `NODE_ENV` | no | `development` (default), `test`, or `production`. |
+| `PORT` | no | Default `4000`. |
+| `DATABASE_URL` | yes | PostgreSQL connection string. |
+| `WEB_URL` | yes | Valid URL; used as the CORS origin. |
+| `PAYMENT_PROVIDER` | yes | `stripe`  is rejected when `NODE_ENV=production`. |
+| `STRIPE_SECRET_KEY` | when `stripe` | Stripe secret key. |
+| `STRIPE_WEBHOOK_SECRET` | when `stripe` | Signing secret for `POST /webhooks/stripe`. |
+| `FIELD_ENCRYPTION_KEY` | yes | 64-character hex string. |
+| `UPLOAD_DIR` | no | Default `./private-uploads`. Must be persistent storage in production. |
+| `REDIS_URL` | no in dev/test, yes in production | Default `redis://localhost:6379` outside production; required when `NODE_ENV=production`. |
+| `ADMIN_PASSWORD` | yes | Minimum 8 characters. |
+
+Uploads are written to `UPLOAD_DIR` and scanned asynchronously. If the scan queue is unreachable the upload returns `503` and the row stays `pending_scan`; a sweep re-queues such rows every 5 minutes. A deployed API without a running worker leaves uploads unscanned.
 
 ## Error shape
 
@@ -251,7 +287,7 @@ No body.
 Purpose: Mark a dummy checkout as paid and create the order. **DEV ONLY — disabled in production.**
 
 - **Auth:** none
-- **Availability:** only when `PAYMENT_PROVIDER=dummy` and `NODE_ENV` is not `production`. Otherwise it responds as an unknown route.
+- **Availability:** only when `PAYMENT_PROVIDER=stripe` and `NODE_ENV` is not `production`. Otherwise it responds as an unknown route.
 
 **Request body** (`application/json`)
 
@@ -480,7 +516,7 @@ The seeded products currently list no required documents, so uploads return `Doc
 
 The multipart parser enforces the 5 MB limit before the controller runs.
 
-A `503` means the document row was saved as `pending_scan` but no scan job was queued; the row stays `pending_scan` until it is re-queued.
+A `503` means the document row was saved as `pending_scan` but no scan job was queued; the row stays `pending_scan` until the sweep re-queues it (the sweep runs every 5 minutes).
 
 ---
 
@@ -525,9 +561,40 @@ A required document counts only when the applicant has a document of that type w
 
 ---
 
+## 12. POST /webhooks/stripe
+
+Purpose: Receive Stripe events. Enabled only when `PAYMENT_PROVIDER=stripe`; otherwise the route returns `404 Not found`.
+
+- **Auth:** Stripe signature header `stripe-signature`, verified with `STRIPE_WEBHOOK_SECRET`
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Header | `stripe-signature` | string | yes | Stripe's signature for the raw request body. |
+| Body | raw JSON | string | yes | Must be the unparsed request body (the route uses `express.raw`). |
+
+Only `checkout.session.completed` events whose `data.object.payment_status` is `paid` complete the pending checkout. Other event types are acknowledged and ignored.
+
+**Success — 200**
+
+```json
+{ "received": true }
+```
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid webhook signature | `http_error` |
+| 404 | Not found | `not_found` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
 ## Not yet available
 
-- **Full-details question list:** not seeded. `GET /visaProducts/:visaProductId/form` returns an empty array for the seeded products until `form_fields` are added.
-- **Real Stripe:** not implemented in the pilot; only the dummy payment provider is available.
+- **Full-details question list:** seeded for US, TH, MY, and AE only. Other destinations return an empty array from `GET /visaProducts/:visaProductId/form`.
+- **Stripe:** the Stripe webhook is implemented (`POST /webhooks/stripe`). `dummy` is rejected when `NODE_ENV=production`, so production must use Stripe keys.
 - **Emailed traveller link:** no endpoint issues or emails the `x-applicant-token`. The token helper is dev-only.
 - **Staff endpoints:** not available in this API yet.

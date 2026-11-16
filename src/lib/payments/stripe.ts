@@ -4,6 +4,7 @@ import { HttpError } from "../errors.js";
 import type {
   CheckoutInput,
   CheckoutSession,
+  ExistingCheckout,
   PaymentProvider,
 } from "./types.js";
 
@@ -40,27 +41,32 @@ export class StripePaymentProvider implements PaymentProvider {
     let session: Stripe.Checkout.Session;
 
     try {
-      session = await getStripeClient().checkout.sessions.create({
-        mode: "payment",
-        client_reference_id: input.reference,
-        metadata: {
-          reference: input.reference,
-        },
-        success_url: `${input.successUrl}?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: input.cancelUrl,
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: input.currency.toLowerCase(),
-              unit_amount: input.amountCents,
-              product_data: {
-                name: `Visa application ${input.reference}`,
+      session = await getStripeClient().checkout.sessions.create(
+        {
+          mode: "payment",
+          client_reference_id: input.reference,
+          metadata: {
+            reference: input.reference,
+          },
+          success_url: `${input.successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: input.cancelUrl,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: input.currency.toLowerCase(),
+                unit_amount: input.amountCents,
+                product_data: {
+                  name: `Visa application ${input.reference}`,
+                },
               },
             },
-          },
-        ],
-      });
+          ],
+        },
+        input.idempotencyKey
+          ? { idempotencyKey: input.idempotencyKey }
+          : undefined,
+      );
     } catch {
       throw stripeFailure(input.reference);
     }
@@ -70,6 +76,32 @@ export class StripePaymentProvider implements PaymentProvider {
     }
 
     return { url: session.url, sessionId: session.id };
+  }
+
+  async getCheckout(sessionId: string): Promise<ExistingCheckout | null> {
+    let session: Stripe.Checkout.Session;
+
+    try {
+      session = await getStripeClient().checkout.sessions.retrieve(sessionId);
+    } catch {
+      throw stripeFailure();
+    }
+
+    if (session.status === "open") {
+      return { status: "open", url: session.url };
+    }
+
+    if (session.status === "complete") {
+      return { status: "complete", url: session.url };
+    }
+
+    if (session.status === "expired") {
+      return { status: "expired", url: null };
+    }
+
+    // Any other status (including null) is not a session we can reason about,
+    // so fail instead of creating a replacement.
+    throw stripeFailure();
   }
 
   async isPaid(sessionId: string): Promise<boolean> {

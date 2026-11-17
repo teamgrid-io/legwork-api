@@ -1,4 +1,4 @@
-// Legwork VAMS - Pilot database (13 tables)
+// Legwork VAMS - Pilot database (15 tables)
 // Flow: basic details -> pending checkout -> Stripe payment -> webhook creates order -> full details -> documents -> admin review.
 // Source of truth for schema.ts. Change this file first, then the code.
 
@@ -74,13 +74,62 @@ Table pending_checkouts {
   legwork_fee_cents int [not null, note: 'snapshot per traveller']
   amount_cents int [not null, note: '> 0; total for all travellers']
   currency char(3) [not null, default: 'USD']
-  status text [not null, default: 'open', note: 'open, paid, expired']
+  status text [not null, default: 'open', note: 'open, paid, expired; a within-grace payment sets paid from open or expired, while a staff-approved late payment leaves it expired']
   stripe_session_id text [unique, note: 'set when checkout starts']
-  expires_at timestamptz [not null, note: 'expired checkouts never become orders']
+  expires_at timestamptz [not null, note: 'payment deadline; an automatic order is created only when payment arrives before expires_at + PAYMENT_REVIEW_GRACE_SECONDS (default 300)']
   created_at timestamptz [not null, default: `now()`]
 
   indexes {
     (status, expires_at) [name: 'pending_checkouts_status_idx']
+  }
+}
+
+// Recorded money. Every successful payment is stored here before any decision is made.
+// T0 insert = succeeded; T1 succeeded -> order_created (within deadline); T2 succeeded -> review_required (late, or amount/currency mismatch); T3 review_required -> order_created (admin approval).
+// No refund columns and no refund statuses in the MVP: late money is kept for review, never refunded by the system.
+// Constraints: payments_status_check (status in succeeded, review_required, order_created),
+// payments_approval_check (approved_by is set only when status = 'order_created'),
+// payments_approval_fields_check (approved_by and approved_at are set together),
+// payments_amount_cents_check (amount_cents > 0), payments_currency_check (^[A-Z]{3}$),
+// payments_payment_method_type_check (payment_method_type = 'card').
+Table payments {
+  id uuid [pk, default: `gen_random_uuid()`]
+  pending_checkout_id uuid [not null, ref: > pending_checkouts.id, note: 'ON DELETE RESTRICT; this snapshot is the source of the order amount and currency']
+  stripe_session_id text [unique, not null, note: 'one payment row per Stripe Checkout session']
+  payment_intent_id text [note: 'Stripe PaymentIntent id; partial unique index where not null']
+  amount_cents int [not null, note: '> 0; integer cents from the Stripe event']
+  currency char(3) [not null, note: 'matches ^[A-Z]{3}$; compared with the checkout snapshot']
+  payment_method_type text [not null, note: 'card only in the MVP']
+  status text [not null, note: 'succeeded, review_required, order_created']
+  approved_by uuid [ref: > staff_users.id, note: 'ON DELETE RESTRICT; null until a staff approval (T3)']
+  approved_at timestamptz [note: 'null until a staff approval (T3); a T1 order has no approver']
+  approval_idempotency_key text [note: 'Idempotency-Key of the approving request; partial unique index where not null']
+  paid_at timestamptz [not null, note: 'when the payment was confirmed']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    payment_intent_id [unique, name: 'payments_payment_intent_id_uq', note: 'partial: WHERE payment_intent_id IS NOT NULL']
+    approval_idempotency_key [unique, name: 'payments_approval_idempotency_key_uq', note: 'partial: WHERE approval_idempotency_key IS NOT NULL']
+    status [name: 'payments_status_idx']
+    pending_checkout_id [name: 'payments_pending_checkout_idx']
+  }
+}
+
+// Inbound Stripe event dedup and claim state.
+// processing = claimed by one delivery; processed = handled; failed = retryable, reclaimable by a later delivery.
+// A row stuck in processing for more than 10 minutes is marked failed by the worker sweeper.
+Table stripe_webhook_events {
+  event_id text [pk, note: 'Stripe event id (evt_...); the dedup key']
+  event_type text [not null, note: 'e.g. checkout.session.completed']
+  status text [not null, note: 'processing, processed, failed']
+  attempt_count int [not null, default: 0, note: '>= 0']
+  last_error text [note: 'bounded error code only; never a raw Stripe payload']
+  received_at timestamptz [not null, default: `now()`]
+  processed_at timestamptz
+
+  indexes {
+    (status, received_at) [name: 'stripe_webhook_events_status_received_idx']
   }
 }
 
@@ -202,7 +251,7 @@ Table staff_users {
   id uuid [pk, default: `gen_random_uuid()`]
   email text [unique, not null]
   name text [not null]
-  password_hash text [not null, note: 'argon2id']
+  password_hash text [not null, note: 'scrypt, format scrypt$N$r$p$salt$hash (base64url salt and hash); never plain text']
   role text [not null, note: 'admin, agent']
   active boolean [not null, default: true]
   mfa_enabled boolean [not null, default: false, note: 'required for staff by the document']

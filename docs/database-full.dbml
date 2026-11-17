@@ -1,3 +1,7 @@
+// SUPERSEDED - do not use as a schema reference.
+// This model was replaced by docs/database-pilot.dbml (15 tables) and no longer
+// describes the shipped schema. Kept only for historical context.
+//
 // Legwork - Full Database Model (all 9 tables)
 // Phase 1 (now):  frontend fills form fields only; server fills the rest.
 // Later phases:   fields marked [later] are used when those features are built.

@@ -74,7 +74,7 @@ Table pending_checkouts {
   legwork_fee_cents int [not null, note: 'snapshot per traveller']
   amount_cents int [not null, note: '> 0; total for all travellers']
   currency char(3) [not null, default: 'USD']
-  status text [not null, default: 'open', note: 'open, paid, expired; a within-grace payment sets paid from open or expired, while a staff-approved late payment leaves it expired']
+  status text [not null, default: 'open', note: 'open, paid, expired; judged at payment time (event.created): a within-grace payment sets paid from open or expired, a payment routed to review_required sets an open checkout to expired, and a paid checkout is never changed; a staff-approved late payment leaves it expired']
   stripe_session_id text [unique, note: 'set when checkout starts']
   expires_at timestamptz [not null, note: 'payment deadline; an automatic order is created only when payment arrives before expires_at + PAYMENT_REVIEW_GRACE_SECONDS (default 300)']
   created_at timestamptz [not null, default: `now()`]
@@ -123,8 +123,8 @@ Table stripe_webhook_events {
   event_id text [pk, note: 'Stripe event id (evt_...); the dedup key']
   event_type text [not null, note: 'e.g. checkout.session.completed']
   status text [not null, note: 'processing, processed, failed']
-  attempt_count int [not null, default: 0, note: '>= 0']
-  last_error text [note: 'bounded error code only; never a raw Stripe payload']
+  attempt_count int [not null, default: 0, note: 'number of claims, max 5; 1 on first insert, +1 per successful reclaim, nothing else']
+  last_error text [note: 'bounded error code only, e.g. http_<status>, internal_error, stale_processing, max_attempts_exceeded; never a raw Stripe payload']
   received_at timestamptz [not null, default: `now()`]
   processed_at timestamptz
 

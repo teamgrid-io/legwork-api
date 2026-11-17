@@ -75,15 +75,17 @@ refund columns and no `refund_pending`/`refunded` statuses.
 | --- | --- | --- | --- | --- |
 | T0 | (none) → `succeeded` | A paid Stripe event is handled | `INSERT ... ON CONFLICT (stripe_session_id) DO NOTHING` | unchanged |
 | T1 | `succeeded` → `order_created` | Payment arrived before the deadline and amount/currency match the checkout snapshot | `UPDATE ... WHERE id = $1 AND status = 'succeeded'` | set to `paid`, from `open` or `expired` |
-| T2 | `succeeded` → `review_required` | Payment arrived at or after the deadline, or amount/currency mismatch | `UPDATE ... WHERE id = $1 AND status = 'succeeded'` | unchanged |
+| T2 | `succeeded` → `review_required` | Payment arrived at or after the deadline, or amount/currency mismatch | `UPDATE ... WHERE id = $1 AND status = 'succeeded'` | set to `expired` from `open`; a `paid` checkout is never changed |
 | T3 | `review_required` → `order_created` | Admin approval | `UPDATE ... WHERE id = $1 AND status = 'review_required'` | unchanged; stays `expired` |
 
 Deadline:
 
 ```
-within_deadline  <=>  now() < pending_checkouts.expires_at + PAYMENT_REVIEW_GRACE_SECONDS
+within_deadline  <=>  payment_time < pending_checkouts.expires_at + PAYMENT_REVIEW_GRACE_SECONDS
 ```
 
+- `payment_time` is the Stripe event's creation time (`event.created`), not the time the webhook is
+  processed. A delayed delivery therefore cannot turn a punctual payment into a late one.
 - `PAYMENT_REVIEW_GRACE_SECONDS` defaults to `300`, integer, bounded `0..3600` in `config.ts`.
 - Boundary is strict: exactly `expires_at + grace` is late.
 - Checked against the checkout row's `expires_at`, which is aligned with Stripe's returned
@@ -104,8 +106,9 @@ Rules:
 4. Approval creates the order exactly once.
 5. Late money is never lost: the payment row is written before any deadline decision.
 6. A successful within-grace payment (T1) sets `pending_checkouts.status = 'paid'` whether the
-   checkout is `open` or `expired`. A staff-approved late payment (T3) leaves the checkout `expired`;
-   the order is still created from that snapshot.
+   checkout is `open` or `expired`. A payment routed to `review_required` (T2) sets an `open` checkout
+   to `expired`; a checkout that is already `paid` is never changed. A staff-approved late payment
+   (T3) leaves the checkout `expired`; the order is still created from that snapshot.
 
 Approval columns on `payments`: `approved_by` (FK `staff_users`, `ON DELETE RESTRICT`), `approved_at`,
 `approval_idempotency_key` (partial unique where not null). T1 leaves all three null because no human
@@ -122,20 +125,33 @@ New table `stripe_webhook_events` (PK `event_id`).
 
 | Situation | Action | HTTP |
 | --- | --- | --- |
-| Event id not seen | `INSERT ... ON CONFLICT DO NOTHING` succeeds | continue |
+| Event id not seen | `INSERT ... ON CONFLICT DO NOTHING` succeeds, `attempt_count = 1` | continue |
 | Existing row `processed` | Acknowledge | `200 { received: true, duplicate: true }` |
 | Existing row `processing` | First delivery may still be in flight or may have crashed | `503` so Stripe retries |
-| Existing row `failed` | Reclaim with `UPDATE ... SET status='processing' WHERE event_id=$1 AND status='failed'` | continue if the update returns a row, otherwise `503` |
+| Existing row `failed`, `attempt_count < 5` | Reclaim with `UPDATE ... SET status='processing', attempt_count = attempt_count + 1 WHERE event_id=$1 AND status='failed' AND attempt_count < 5` | continue if the update returns a row, otherwise `503` |
+| Existing row `failed`, `attempt_count >= 5` | Do not reclaim. One guarded update writes `last_error = 'max_attempts_exceeded'` | `200 { received: true, failed: 'max_attempts_exceeded' }` |
 | Row disappears between insert and select | Treat as `processing` | `503` |
 
 A duplicate is never answered with `200` while the first delivery is still in `processing`.
 
+`attempt_count` is the number of claims, nothing else: it is `1` on first insert and incremented by
+exactly one on each successful reclaim. No other code path increments it, including
+`markEventFailed` and the sweeper. `MAX_STRIPE_EVENT_ATTEMPTS = 5` caps the total claims per event id,
+and a failed row is reclaimed only while `attempt_count < 5`.
+
 Stale recovery: `src/workers/index.ts` starts a repeatable sweep (same pattern as
 `sweep-pending-scan`, every 5 minutes) that marks `processing` rows older than 10 minutes as
-`failed` with `last_error = 'stale_processing'`. A later Stripe retry reclaims them.
+`failed`. One statement sets `last_error` with a `CASE`: `'max_attempts_exceeded'` when
+`attempt_count >= 5`, otherwise `'stale_processing'`. The sweep never changes `attempt_count`. A later
+Stripe retry reclaims `stale_processing` rows; rows at the cap are never reclaimed again.
+
+An event at the cap is terminal automation-wise: the next delivery answers
+`200 { received: true, failed: 'max_attempts_exceeded' }` without running the business code, and one
+error-level log line with the event id and type is written. **These events need manual investigation**
+before any recovery; there is no automatic replay, no reset endpoint, and no self-healing path.
 
 `markEventProcessed` runs only after the business transaction commits. On failure,
-`markEventFailed` stores a bounded code (`http_<status>` or `internal_error`) and increments
+`markEventFailed` stores a bounded code (`http_<status>` or `internal_error`) without touching
 `attempt_count`; the handler then rethrows so Stripe sees a non-2xx and retries. No raw payload,
 session id, or URL is stored or logged.
 
@@ -154,10 +170,11 @@ New order of operations, all in one transaction:
 3. Replay: an existing `order_created` returns its order; an existing `review_required` returns that
    status. No second order.
 4. Decide with `decidePaymentOutcome(...)` using the checkout row, the Stripe amount/currency, and the
-   deadline.
+   deadline, all evaluated at payment time (`event.created`).
 5. T1: guarded update to `order_created`, set `pending_checkouts.status = 'paid'` whether the checkout
    is `open` or `expired`, then create the order inside the same transaction.
-6. T2: guarded update to `review_required` plus an `audit_logs` row
+6. T2: guarded update to `review_required`, set an `open` checkout to `expired` (a `paid` checkout is
+   never changed), plus an `audit_logs` row
    (`actor_type = 'system'`, `action = 'payment.review_required'`, reason codes in metadata).
 
 Order creation is extracted into one helper used by T1 and T3, parameterised only on the
@@ -243,7 +260,7 @@ imply approval rights.
 - **MFA is excluded from the MVP.** `staff_users.mfa_enabled` and `mfa_secret_enc` exist but this
   change ignores them; an admin account is protected by password plus JWT only.
 - **Non-card compatibility window.** `payments.payment_method_type` is constrained to `'card'`, and
-  new sessions request `payment_method_types: ["card"]`. Sessions created before that change carry no
+  new sessions request `allowed_payment_method_types: ["card"]`. Sessions created before that change carry no
   explicit method list, so a non-card payment from one of those sessions would fail the CHECK and
   produce a `500` with no recorded payment. The window closes once all pre-change sessions expire.
 - **Login rate limiting is required before go-live.** No rate limiter exists in the app today; the

@@ -50,7 +50,7 @@ async function cleanStaff(): Promise<void> {
 const app = express();
 
 app.use(express.json());
-app.use("/api/staff", staffRouter);
+app.use("/api/v1/staff", staffRouter);
 app.use(errorHandler);
 
 let server: Server | null = null;
@@ -81,7 +81,7 @@ interface LoginResult {
 }
 
 async function postLogin(body: unknown): Promise<LoginResult> {
-  const response = await fetch(`${baseUrl}/api/staff/login`, {
+  const response = await fetch(`${baseUrl}/api/v1/staff/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

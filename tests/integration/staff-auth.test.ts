@@ -67,7 +67,7 @@ async function cleanStaff(): Promise<void> {
 const app = express();
 
 app.use(express.json());
-app.use("/api/staff", staffRouter);
+app.use("/api/v1/staff", staffRouter);
 
 // Test-only routes: app.ts is never loaded by the test runner (it pulls in the
 // Redis-backed queue module), and role gates are exercised here.
@@ -108,7 +108,7 @@ async function login(
   email: string,
   password: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await fetch(`${baseUrl}/api/staff/login`, {
+  const response = await fetch(`${baseUrl}/api/v1/staff/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -260,7 +260,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("malformed login body returns 400 from the validation handler", async () => {
-    const response = await fetch(`${baseUrl}/api/staff/login`, {
+    const response = await fetch(`${baseUrl}/api/v1/staff/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "not-an-email", password: "" }),

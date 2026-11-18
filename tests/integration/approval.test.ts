@@ -137,7 +137,7 @@ async function createPayment(input: {
 const app = express();
 
 app.use(express.json());
-app.use("/api/staff", staffRouter);
+app.use("/api/v1/staff", staffRouter);
 app.use(errorHandler);
 
 let server: Server | null = null;
@@ -204,7 +204,7 @@ function approve(
   idempotencyKey: string | undefined,
   body?: unknown,
 ) {
-  return call("POST", `/api/staff/payments/${paymentId}/approve`, {
+  return call("POST", `/api/v1/staff/payments/${paymentId}/approve`, {
     token,
     idempotencyKey,
     body,
@@ -212,7 +212,7 @@ function approve(
 }
 
 function list(query: string, token: string | undefined) {
-  return call("GET", `/api/staff/payments${query}`, { token });
+  return call("GET", `/api/v1/staff/payments${query}`, { token });
 }
 
 function newKey(): string {

@@ -12,7 +12,7 @@ Money is integer cents everywhere. Card data, secrets, and raw Stripe payloads a
 
 | Item | Value |
 | --- | --- |
-| Method / path | `POST /api/staff/login` |
+| Method / path | `POST /api/v1/staff/login` |
 | Body | `{ "email": string, "password": string }` |
 | Success | `200 { token, expiresInSeconds, staff: { id, name, role } }` |
 | Unknown email, wrong password, or `active = false` | `401` with the same message (`Invalid credentials`) — no account enumeration |
@@ -45,7 +45,7 @@ real seed run.
 - Approve uses `requireStaff` + `requireRole("admin")`. List uses `requireStaff` +
   `requireRole("admin", "agent")`.
 - Roles remain `admin` and `agent`; the `staff_users` role CHECK is not modified.
-- Mounted at `/api/staff`, **after** `express.json()`. The Stripe webhook stays mounted before
+- Mounted at `/api/v1/staff`, **after** `express.json()`. The Stripe webhook stays mounted before
   `express.json()` so it keeps receiving the raw `Buffer` for signature verification.
 
 ### 1.4 Admin seed
@@ -183,7 +183,7 @@ so the database also guarantees one order per checkout.
 
 ## 4. Approval API contract
 
-`POST /api/staff/payments/:id/approve`
+`POST /api/v1/staff/payments/:id/approve`
 
 | Item | Value |
 | --- | --- |
@@ -236,7 +236,7 @@ Idempotency storage is `payments.approval_idempotency_key` (partial unique index
 
 ## 5. List endpoint
 
-`GET /api/staff/payments`
+`GET /api/v1/staff/payments`
 
 | Item | Value |
 | --- | --- |

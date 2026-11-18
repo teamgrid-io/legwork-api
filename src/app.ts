@@ -20,7 +20,7 @@ app.use(cors({ origin: config.webUrl }));
 app.use("/api/v1", webhooksRouter);
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
-app.use("/api/staff", staffRouter);
+app.use("/api/v1/staff", staffRouter);
 
 app.get("/health", (_req, res) => {
   res.json({

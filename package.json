@@ -14,6 +14,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed.ts",
+    "db:seed:staff": "tsx src/db/seed-staff.ts",
     "test": "vitest run",
     "test:webhooks": "tsx tests/run.ts"
   },
@@ -28,6 +29,7 @@
     "drizzle-orm": "^0.45.4",
     "express": "^5.3.0",
     "ioredis": "^6.0.0",
+    "jose": "^6.2.17",
     "multer": "^2.5.0",
     "pg": "^8.23.1",
     "stripe": "^23.1.0",

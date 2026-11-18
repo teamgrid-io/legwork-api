@@ -14,7 +14,7 @@ Money is integer cents everywhere. Card data, secrets, and raw Stripe payloads a
 | --- | --- |
 | Method / path | `POST /api/staff/login` |
 | Body | `{ "email": string, "password": string }` |
-| Success | `200 { token, expiresAt, staff: { id, email, name, role } }` |
+| Success | `200 { token, expiresInSeconds, staff: { id, name, role } }` |
 | Unknown email, wrong password, or `active = false` | `401` with the same message (`Invalid credentials`) — no account enumeration |
 | Malformed body | `400` (`validation_error`, existing Zod handler) |
 
@@ -45,7 +45,7 @@ real seed run.
 - Approve uses `requireStaff` + `requireRole("admin")`. List uses `requireStaff` +
   `requireRole("admin", "agent")`.
 - Roles remain `admin` and `agent`; the `staff_users` role CHECK is not modified.
-- Mounted at `/api`, **after** `express.json()`. The Stripe webhook stays mounted before
+- Mounted at `/api/staff`, **after** `express.json()`. The Stripe webhook stays mounted before
   `express.json()` so it keeps receiving the raw `Buffer` for signature verification.
 
 ### 1.4 Admin seed
@@ -223,9 +223,9 @@ One transaction:
    `action = 'payment.approved'`, `entity_type = 'payment'`, `entity_id` = payment id,
    `metadata = { previous_status: 'review_required', new_status: 'order_created', reason: ReasonCode[], note, idempotency_key }`.
 
-`reason` is the array of codes that sent the payment to review (recomputed with the same decision
-function at approval time); `note` is the approver's optional free text from the request body. Free
-text is never stored in `reason`.
+`reason` is the array of codes that sent the payment to review, read from that payment's
+`payment.review_required` audit row and restricted to the known codes; `note` is the approver's
+optional free text from the request body. Free text is never stored in `reason`.
 
 Exactly-once is enforced by the guarded update and by `orders.pending_checkout_id UNIQUE`. Two
 concurrent requests with the same key: one wins, the other sees `order_created` and returns the same

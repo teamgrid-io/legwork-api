@@ -63,6 +63,7 @@ const suitePaths = [
   "./integration/dedupe.test.js",
   "./integration/sweeper.test.js",
   "./integration/staff-auth.test.js",
+  "./integration/approval.test.js",
 ];
 
 let failures = 0;

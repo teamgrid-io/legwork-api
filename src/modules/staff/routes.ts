@@ -5,10 +5,11 @@ import {
   loginController,
 } from "./controller.js";
 import { requireRole, requireStaff } from "./middleware.js";
+import { loginRateLimiter } from "./rate-limit.js";
 
 export const staffRouter = Router();
 
-staffRouter.post("/login", loginController);
+staffRouter.post("/login", loginRateLimiter, loginController);
 staffRouter.get(
   "/payments",
   requireStaff,

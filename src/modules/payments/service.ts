@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, notExists } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../db/index.js";
-import { pendingCheckouts } from "../../db/schema.js";
+import { payments, pendingCheckouts } from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
 import { paymentProvider } from "../../lib/payments/index.js";
 import type { ExistingCheckout } from "../../lib/payments/types.js";
@@ -25,6 +25,7 @@ export async function createCheckoutForRequest(
         currency: pendingCheckouts.currency,
         status: pendingCheckouts.status,
         expiresAt: pendingCheckouts.expiresAt,
+        createdAt: pendingCheckouts.createdAt,
         stripeSessionId: pendingCheckouts.stripeSessionId,
       })
       .from(pendingCheckouts)
@@ -66,6 +67,49 @@ export async function createCheckoutForRequest(
       }
 
       if (existing?.status === "open" && existing.url) {
+        // Option A: align to Stripe's real expiry, capped at created_at + 31 min.
+        // Stripe's value can only be earlier (legacy sessions created without an
+        // explicit expires_at), never later than the ceiling for new sessions.
+        // Skipped when the checkout already has a payments row: the deadline is
+        // the input to the late/mismatch decision.
+        const stripeDeadlineMs = existing.expiresAt * 1000;
+        const localCeilingMs = checkout.createdAt.getTime() + 31 * 60 * 1000;
+        const aligned = new Date(Math.min(stripeDeadlineMs, localCeilingMs));
+
+        await tx
+          .update(pendingCheckouts)
+          .set({ expiresAt: aligned })
+          .where(
+            and(
+              eq(pendingCheckouts.id, checkout.id),
+              notExists(
+                tx
+                  .select({ id: payments.id })
+                  .from(payments)
+                  .where(eq(payments.pendingCheckoutId, checkout.id)),
+              ),
+            ),
+          );
+
+        // Reason: Stripe can still report "open" while the aligned deadline has
+        // already passed (expiry propagation delay or clock skew). Never hand
+        // back a dead URL; use the same expired handling as an expired checkout.
+        if (aligned.getTime() <= Date.now()) {
+          if (checkout.status === "open") {
+            await tx
+              .update(pendingCheckouts)
+              .set({ status: "expired" })
+              .where(
+                and(
+                  eq(pendingCheckouts.id, checkout.id),
+                  eq(pendingCheckouts.status, "open"),
+                ),
+              );
+          }
+
+          throw new HttpError(409, "Checkout has expired");
+        }
+
         return { url: existing.url };
       }
 
@@ -88,7 +132,11 @@ export async function createCheckoutForRequest(
 
     const [updated] = await tx
       .update(pendingCheckouts)
-      .set({ stripeSessionId: session.sessionId })
+      .set({
+        stripeSessionId: session.sessionId,
+        // Stripe's returned value, not the requested now + 31 minutes.
+        expiresAt: new Date(session.expiresAt * 1000),
+      })
       .where(
         and(
           eq(pendingCheckouts.id, checkout.id),

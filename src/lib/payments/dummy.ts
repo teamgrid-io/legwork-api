@@ -19,8 +19,9 @@ export class DummyPaymentProvider implements PaymentProvider {
   async createCheckout(input: CheckoutInput): Promise<CheckoutSession> {
     const sessionId = `dummy_${randomUUID()}`;
     const url = `${input.successUrl}?session_id=${sessionId}`;
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
 
-    return { url, sessionId };
+    return { url, sessionId, expiresAt };
   }
 
   async getCheckout(_sessionId: string): Promise<ExistingCheckout | null> {

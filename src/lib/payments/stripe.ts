@@ -39,11 +39,18 @@ export class StripePaymentProvider implements PaymentProvider {
 
   async createCheckout(input: CheckoutInput): Promise<CheckoutSession> {
     let session: Stripe.Checkout.Session;
+    // Stripe's minimum is 30 minutes from now; 31 minutes leaves a small
+    // margin so the returned expires_at is never rejected as too soon.
+    const requestedExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
 
     try {
       session = await getStripeClient().checkout.sessions.create(
         {
           mode: "payment",
+          // allowed_payment_method_types filters Stripe's dynamically computed methods.
+          // Card-only keeps every payment inside payments_payment_method_type_check.
+          allowed_payment_method_types: ["card"],
+          expires_at: requestedExpiresAt,
           client_reference_id: input.reference,
           metadata: {
             reference: input.reference,
@@ -75,7 +82,12 @@ export class StripePaymentProvider implements PaymentProvider {
       throw stripeFailure(input.reference);
     }
 
-    return { url: session.url, sessionId: session.id };
+    return {
+      url: session.url,
+      sessionId: session.id,
+      // Stripe's value, never requestedExpiresAt.
+      expiresAt: session.expires_at,
+    };
   }
 
   async getCheckout(sessionId: string): Promise<ExistingCheckout | null> {
@@ -88,15 +100,19 @@ export class StripePaymentProvider implements PaymentProvider {
     }
 
     if (session.status === "open") {
-      return { status: "open", url: session.url };
+      return { status: "open", url: session.url, expiresAt: session.expires_at };
     }
 
     if (session.status === "complete") {
-      return { status: "complete", url: session.url };
+      return {
+        status: "complete",
+        url: session.url,
+        expiresAt: session.expires_at,
+      };
     }
 
     if (session.status === "expired") {
-      return { status: "expired", url: null };
+      return { status: "expired", url: null, expiresAt: session.expires_at };
     }
 
     // Any other status (including null) is not a session we can reason about,

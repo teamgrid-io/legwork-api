@@ -9,6 +9,7 @@ import { documentsRouter } from "./modules/documents/routes.js";
 import { formsRouter } from "./modules/forms/routes.js";
 import { paymentsRouter } from "./modules/payments/routes.js";
 import { requestsRouter } from "./modules/requests/routes.js";
+import { staffRouter } from "./modules/staff/routes.js";
 import { webhooksRouter } from "./modules/webhooks/routes.js";
 
 export const app = express();
@@ -19,6 +20,7 @@ app.use(cors({ origin: config.webUrl }));
 app.use("/api/v1", webhooksRouter);
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
+app.use("/api/staff", staffRouter);
 
 app.get("/health", (_req, res) => {
   res.json({

@@ -62,6 +62,7 @@ const suitePaths = [
   "./integration/webhook-flow.test.js",
   "./integration/dedupe.test.js",
   "./integration/sweeper.test.js",
+  "./integration/staff-auth.test.js",
 ];
 
 let failures = 0;

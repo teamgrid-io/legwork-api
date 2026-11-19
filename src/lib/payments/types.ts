@@ -10,6 +10,8 @@ export interface CheckoutInput {
 export interface CheckoutSession {
   url: string;
   sessionId: string;
+  /** Unix seconds, copied from Stripe's session.expires_at. */
+  expiresAt: number;
 }
 
 export type CheckoutStatus = "open" | "complete" | "expired";
@@ -17,6 +19,8 @@ export type CheckoutStatus = "open" | "complete" | "expired";
 export interface ExistingCheckout {
   status: CheckoutStatus;
   url: string | null;
+  /** Unix seconds, copied from Stripe's session.expires_at. */
+  expiresAt: number;
 }
 
 export interface PaymentProvider {

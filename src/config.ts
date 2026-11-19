@@ -40,6 +40,14 @@ const envSchema = z
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
+    // Optional in .env. Absent or blank is removed by withoutEmptyValues(),
+    // so .default(300) applies. Non-numeric input fails .int().
+    PAYMENT_REVIEW_GRACE_SECONDS: z.coerce
+      .number({ error: "must be a number" })
+      .int("must be an integer")
+      .min(0, "must be between 0 and 3600")
+      .max(3600, "must be between 0 and 3600")
+      .default(300),
   })
   .superRefine((env, ctx) => {
     if (env.PAYMENT_PROVIDER === "stripe" && !env.STRIPE_SECRET_KEY) {
@@ -88,6 +96,7 @@ export interface AppConfig {
   readonly uploadDir: string;
   readonly redisUrl: string;
   readonly adminPassword: string;
+  readonly paymentReviewGraceSeconds: number;
 }
 
 export type EnvValidationResult =
@@ -141,6 +150,7 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       uploadDir: env.UPLOAD_DIR,
       redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
       adminPassword: env.ADMIN_PASSWORD,
+      paymentReviewGraceSeconds: env.PAYMENT_REVIEW_GRACE_SECONDS,
     }),
   };
 }

@@ -8,6 +8,13 @@
       "when": 1794479843484,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794914283575,
+      "tag": "0001_payments_and_webhook_events",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,10 @@ import {
   startPendingScanSweep,
   type PendingScanSweep,
 } from "../jobs/sweep-pending-scan.js";
+import {
+  startStripeWebhookEventSweep,
+  type StripeWebhookEventSweep,
+} from "../jobs/start-stripe-webhook-event-sweep.js";
 import { documentScanWorker } from "./document-scan.worker.js";
 
 console.log("Document scan worker started");
@@ -13,9 +17,11 @@ documentScanWorker.on("error", (error: Error) => {
 });
 
 let pendingScanSweep: PendingScanSweep | null = null;
+let stripeWebhookEventSweep: StripeWebhookEventSweep | null = null;
 
 if (config.nodeEnv === "test") {
   console.log("Pending scan sweep disabled in test mode");
+  console.log("Stripe webhook sweep disabled in test mode");
 } else {
   void startPendingScanSweep()
     .then((sweep) => {
@@ -28,6 +34,14 @@ if (config.nodeEnv === "test") {
         }`,
       );
     });
+
+  void startStripeWebhookEventSweep()
+    .then((sweep) => {
+      stripeWebhookEventSweep = sweep;
+    })
+    .catch(() => {
+      console.error("Stripe webhook sweep could not start");
+    });
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -38,6 +52,11 @@ async function shutdown(signal: string): Promise<void> {
   if (pendingScanSweep) {
     await pendingScanSweep.worker.close();
     await pendingScanSweep.queue.close();
+  }
+
+  if (stripeWebhookEventSweep) {
+    await stripeWebhookEventSweep.worker.close();
+    await stripeWebhookEventSweep.queue.close();
   }
 
   await pool.end();

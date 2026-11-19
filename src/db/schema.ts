@@ -461,3 +461,93 @@ export const staffUsers = pgTable(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Payments and Stripe webhook events
+// ---------------------------------------------------------------------------
+
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pendingCheckoutId: uuid("pending_checkout_id")
+      .notNull()
+      .references(() => pendingCheckouts.id, { onDelete: "restrict" }),
+    stripeSessionId: text("stripe_session_id").notNull(),
+    paymentIntentId: text("payment_intent_id"),
+    amountCents: integer("amount_cents").notNull(),
+    currency: char("currency", { length: 3 }).notNull(),
+    paymentMethodType: text("payment_method_type").notNull(),
+    status: text("status").notNull(),
+    approvedBy: uuid("approved_by").references(() => staffUsers.id, {
+      onDelete: "restrict",
+    }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvalIdempotencyKey: text("approval_idempotency_key"),
+    paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("payments_stripe_session_id_uq").on(table.stripeSessionId),
+    uniqueIndex("payments_payment_intent_id_uq")
+      .on(table.paymentIntentId)
+      .where(sql`${table.paymentIntentId} IS NOT NULL`),
+    uniqueIndex("payments_approval_idempotency_key_uq")
+      .on(table.approvalIdempotencyKey)
+      .where(sql`${table.approvalIdempotencyKey} IS NOT NULL`),
+    index("payments_status_idx").on(table.status),
+    index("payments_pending_checkout_idx").on(table.pendingCheckoutId),
+    check("payments_amount_cents_check", sql`${table.amountCents} > 0`),
+    check("payments_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check(
+      "payments_payment_method_type_check",
+      sql`${table.paymentMethodType} = 'card'`,
+    ),
+    check(
+      "payments_status_check",
+      sql`${table.status} IN ('succeeded', 'review_required', 'order_created')`,
+    ),
+    check(
+      "payments_approval_check",
+      sql`${table.approvedBy} IS NULL OR ${table.status} = 'order_created'`,
+    ),
+    check(
+      "payments_approval_fields_check",
+      sql`(${table.approvedBy} IS NULL) = (${table.approvedAt} IS NULL)`,
+    ),
+  ],
+);
+
+export const stripeWebhookEvents = pgTable(
+  "stripe_webhook_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    eventType: text("event_type").notNull(),
+    status: text("status").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("stripe_webhook_events_status_received_idx").on(
+      table.status,
+      table.receivedAt,
+    ),
+    check(
+      "stripe_webhook_events_status_check",
+      sql`${table.status} IN ('processing', 'processed', 'failed')`,
+    ),
+    check(
+      "stripe_webhook_events_attempt_count_check",
+      sql`${table.attemptCount} >= 0`,
+    ),
+  ],
+);

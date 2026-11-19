@@ -30,6 +30,7 @@ export const createRequestSchema = z
   .object({
     destinationIso2: iso2Schema,
     passportIso2: iso2Schema,
+    visaProductId: z.uuid().optional(),
     travelDate: z.iso.date({
       error: "travelDate must be a valid YYYY-MM-DD date",
     }),

@@ -28,3 +28,14 @@ export const resendActivationSchema = z
   .strict();
 
 export type ResendActivationInput = z.infer<typeof resendActivationSchema>;
+
+export const listOrdersQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export type ListOrdersQuery = z.infer<typeof listOrdersQuerySchema>;
+
+export const orderNumberParamSchema = z.object({
+  orderNumber: z.string().min(1).max(64),
+});

@@ -13,6 +13,7 @@ import { HttpError } from "../../lib/errors.js";
 import {
   computeVisibleFieldKeys,
   type FormFieldRecord,
+  isAnswerMissing,
 } from "../forms/service.js";
 
 interface SavedAnswersDto {
@@ -325,13 +326,7 @@ export async function submitApplication(
 
       const value = cleanedAnswers[field.fieldKey];
 
-      if (
-        value === undefined ||
-        value === null ||
-        value === "" ||
-        (Array.isArray(value) && value.length === 0) ||
-        (field.fieldType === "checkbox" && value !== true)
-      ) {
+      if (isAnswerMissing(field.fieldType, value)) {
         missingAnswers.push(field.fieldKey);
       }
     }

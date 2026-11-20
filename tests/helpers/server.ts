@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import express from "express";
 import { customerAuthRouter } from "../../src/modules/customer/routes.js";
+import { paymentsRouter } from "../../src/modules/payments/routes.js";
 import { webhooksRouter } from "../../src/modules/webhooks/routes.js";
 import { errorHandler } from "../../src/middleware/errorHandler.js";
 
@@ -18,6 +19,8 @@ export async function startTestServer(): Promise<string> {
   const app = express();
 
   app.use("/api/v1", webhooksRouter);
+  // Only the public verify endpoint is exercised by the read endpoint suite.
+  app.use("/api/v1", paymentsRouter);
   // JSON parsing is scoped to the customer auth router: the Stripe webhook route
   // needs the untouched raw body, so a global express.json() would break it.
   app.use("/api/v1/auth", express.json({ limit: "100kb" }), customerAuthRouter);

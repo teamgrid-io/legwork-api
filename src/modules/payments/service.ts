@@ -1,7 +1,7 @@
 import { and, eq, notExists } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../db/index.js";
-import { payments, pendingCheckouts } from "../../db/schema.js";
+import { orders, payments, pendingCheckouts } from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
 import { paymentProvider } from "../../lib/payments/index.js";
 import type { ExistingCheckout } from "../../lib/payments/types.js";
@@ -153,15 +153,20 @@ export async function createCheckoutForRequest(
   });
 }
 
-export async function verifyPayment(
-  sessionId: string,
-): Promise<{ reference: string; paid: boolean; status: string }> {
+export async function verifyPayment(sessionId: string): Promise<{
+  reference: string;
+  paid: boolean;
+  status: string;
+  orderNumber: string | null;
+}> {
   const [checkout] = await db
     .select({
       reference: pendingCheckouts.reference,
       status: pendingCheckouts.status,
+      orderNumber: orders.orderNumber,
     })
     .from(pendingCheckouts)
+    .leftJoin(orders, eq(orders.pendingCheckoutId, pendingCheckouts.id))
     .where(eq(pendingCheckouts.stripeSessionId, sessionId))
     .limit(1);
 
@@ -173,5 +178,6 @@ export async function verifyPayment(
     reference: checkout.reference,
     paid: checkout.status === "paid",
     status: checkout.status,
+    orderNumber: checkout.orderNumber ?? null,
   };
 }

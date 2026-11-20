@@ -71,6 +71,23 @@ function parseVisibleIf(value: unknown): VisibleIfRule | null {
   return { field, in: rule.in };
 }
 
+/**
+ * The single definition of "this field has no usable answer". Submit and the
+ * read-side progress counters must agree, so both call this.
+ */
+export function isAnswerMissing(
+  fieldType: string,
+  value: unknown,
+): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0) ||
+    (fieldType === "checkbox" && value !== true)
+  );
+}
+
 export function computeVisibleFieldKeys(
   fields: readonly FormFieldRecord[],
   answers: Record<string, unknown>,

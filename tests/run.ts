@@ -48,6 +48,8 @@ process.env.PAYMENT_PROVIDER = "stripe";
 process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_placeholder";
 process.env.ADMIN_PASSWORD = "test-password-only";
+process.env.JWT_SECRET = "test-staff-jwt-secret-at-least-32-chars";
+process.env.CUSTOMER_JWT_SECRET = "test-customer-jwt-secret-at-least-32-chars";
 process.env.PAYMENT_REVIEW_GRACE_SECONDS = "300";
 
 // Also required by config.ts; not secrets, so fixed values are fine.
@@ -70,6 +72,7 @@ const suitePaths = [
   "./integration/sweeper.test.js",
   "./integration/submit.test.js",
   "./integration/staff-auth.test.js",
+  "./integration/customer-auth.test.js",
   "./integration/approval.test.js",
   "./integration/rate-limit.test.js",
 ];

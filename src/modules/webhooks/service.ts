@@ -5,6 +5,7 @@ import { db } from "../../db/index.js";
 import {
   applicants,
   auditLogs,
+  customers,
   orderEvents,
   orderItems,
   orders,
@@ -13,6 +14,7 @@ import {
   stripeWebhookEvents,
 } from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
+import { issueActivation, normalizeEmail } from "../customer/activation.js";
 import { decidePaymentOutcome, MAX_STRIPE_EVENT_ATTEMPTS } from "./policy.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -32,6 +34,15 @@ export interface CompleteCheckoutResult {
   created: boolean;
 }
 
+/**
+ * Transaction-only shape. `customerId` must never reach a controller: the dummy
+ * payment endpoint returns CompleteCheckoutResult verbatim, so the public type
+ * stays exactly as it was.
+ */
+interface InternalCompleteCheckoutResult extends CompleteCheckoutResult {
+  customerId: string | null;
+}
+
 function generateOrderNumber(): string {
   const year = new Date().getUTCFullYear();
   const suffix = randomInt(0, 1_000_000).toString().padStart(6, "0");
@@ -48,7 +59,7 @@ async function routeDecidedPayment(
   tx: Tx,
   paymentId: string,
   pendingCheckoutId: string,
-): Promise<CompleteCheckoutResult | null> {
+): Promise<InternalCompleteCheckoutResult | null> {
   const [row] = await tx
     .select({ status: payments.status })
     .from(payments)
@@ -60,7 +71,12 @@ async function routeDecidedPayment(
   }
 
   if (row.status === "review_required") {
-    return { status: "review_required", orderNumber: null, created: false };
+    return {
+      status: "review_required",
+      orderNumber: null,
+      created: false,
+      customerId: null,
+    };
   }
 
   if (row.status === "order_created") {
@@ -78,6 +94,7 @@ async function routeDecidedPayment(
       status: "order_created",
       orderNumber: order.orderNumber,
       created: false,
+      customerId: null,
     };
   }
 
@@ -93,7 +110,7 @@ async function createOrderFromCheckout(
   tx: Tx,
   checkout: CheckoutRow,
   actorType: "stripe" | "staff",
-): Promise<{ orderNumber: string; created: boolean }> {
+): Promise<{ orderNumber: string; created: boolean; customerId: string | null }> {
   const [existing] = await tx
     .select({ orderNumber: orders.orderNumber })
     .from(orders)
@@ -101,7 +118,11 @@ async function createOrderFromCheckout(
     .limit(1);
 
   if (existing) {
-    return { orderNumber: existing.orderNumber, created: false };
+    return {
+      orderNumber: existing.orderNumber,
+      created: false,
+      customerId: null,
+    };
   }
 
   const travellers = checkout.travellers;
@@ -142,6 +163,47 @@ async function createOrderFromCheckout(
   const paidAt = new Date();
   let order: { id: string; orderNumber: string } | undefined;
 
+  // Customer identity is created in the same transaction as the order. The
+  // email is the natural key: ON CONFLICT DO NOTHING, then reselect, so a
+  // replayed delivery or a second order reuses the existing row.
+  const customerEmail = normalizeEmail(checkout.contactEmail);
+  const firstApplicant = applicantDetails[0];
+
+  if (!firstApplicant) {
+    throw new Error("pending_checkouts has no validated traveller");
+  }
+
+  const customerName =
+    `${firstApplicant.firstName} ${firstApplicant.surname}`.trim() ||
+    customerEmail.split("@")[0] ||
+    customerEmail;
+
+  const [insertedCustomer] = await tx
+    .insert(customers)
+    .values({
+      email: customerEmail,
+      name: customerName,
+      phone: checkout.contactPhone,
+    })
+    .onConflictDoNothing({ target: customers.email })
+    .returning({ id: customers.id });
+
+  let customerId = insertedCustomer?.id;
+
+  if (!customerId) {
+    const [existingCustomer] = await tx
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.email, customerEmail))
+      .limit(1);
+
+    if (!existingCustomer) {
+      throw new Error("Customer row missing after insert");
+    }
+
+    customerId = existingCustomer.id;
+  }
+
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const orderNumber = generateOrderNumber();
 
@@ -150,6 +212,7 @@ async function createOrderFromCheckout(
       .values({
         orderNumber,
         pendingCheckoutId: checkout.id,
+        customerId,
         visaProductId: checkout.visaProductId,
         passportCountryId: checkout.passportCountryId,
         originCountryId: checkout.originCountryId,
@@ -179,7 +242,11 @@ async function createOrderFromCheckout(
       .limit(1);
 
     if (raced) {
-      return { orderNumber: raced.orderNumber, created: false };
+      return {
+        orderNumber: raced.orderNumber,
+        created: false,
+        customerId: null,
+      };
     }
   }
 
@@ -232,14 +299,18 @@ async function createOrderFromCheckout(
     note: "Payment confirmed",
   });
 
-  return { orderNumber: createdOrder.orderNumber, created: true };
+  return {
+    orderNumber: createdOrder.orderNumber,
+    created: true,
+    customerId,
+  };
 }
 
-export async function completePendingCheckout(
+async function runCheckoutTransaction(
   sessionId: string,
   payment?: StripePaymentInput,
-): Promise<CompleteCheckoutResult> {
-  return db.transaction(async (tx) => {
+): Promise<InternalCompleteCheckoutResult> {
+  return db.transaction(async (tx): Promise<InternalCompleteCheckoutResult> => {
     // Lock order: first statement in the transaction locks the checkout row,
     // before the T0 payments insert. FOR UPDATE on a missing row locks nothing;
     // the event claim keeps concurrent deliveries apart.
@@ -253,7 +324,12 @@ export async function completePendingCheckout(
     // Unknown session: no write. The controller answers 200, marks the event
     // processed with last_error='unknown_session', and logs event id and type.
     if (!checkout) {
-      return { status: "unknown_session", orderNumber: null, created: false };
+      return {
+        status: "unknown_session",
+        orderNumber: null,
+        created: false,
+        customerId: null,
+      };
     }
 
     // Decision time is payment time. Lateness and the expired side effect are
@@ -397,7 +473,12 @@ export async function completePendingCheckout(
         },
       });
 
-      return { status: "review_required", orderNumber: null, created: false };
+      return {
+        status: "review_required",
+        orderNumber: null,
+        created: false,
+        customerId: null,
+      };
     }
 
     // T1: guarded transition succeeded -> order_created.
@@ -441,8 +522,61 @@ export async function completePendingCheckout(
       status: "order_created",
       orderNumber: order.orderNumber,
       created: order.created,
+      customerId: order.customerId,
     };
   });
+}
+
+/**
+ * Activation mail hook. Runs strictly after the business transaction committed,
+ * and only for an order that was created by this delivery for a customer who is
+ * still inactive. Failure is logged and swallowed: the webhook response must not
+ * depend on the mail path.
+ */
+async function issueActivationAfterCommit(customerId: string): Promise<void> {
+  try {
+    const [customer] = await db
+      .select({ activatedAt: customers.activatedAt })
+      .from(customers)
+      .where(eq(customers.id, customerId))
+      .limit(1);
+
+    if (!customer || customer.activatedAt !== null) {
+      return;
+    }
+
+    await issueActivation(customerId);
+  } catch (error) {
+    // Fixed fields only: customer id and message, never the address or token.
+    console.error(
+      `Could not issue customer activation for ${customerId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * Public entry point. The returned shape is exactly CompleteCheckoutResult; the
+ * internal customer id is stripped here so no controller can leak it.
+ */
+export async function completePendingCheckout(
+  sessionId: string,
+  payment?: StripePaymentInput,
+): Promise<CompleteCheckoutResult> {
+  const result = await runCheckoutTransaction(sessionId, payment);
+
+  if (
+    result.status === "order_created" &&
+    result.created &&
+    result.customerId !== null
+  ) {
+    await issueActivationAfterCommit(result.customerId);
+  }
+
+  return {
+    status: result.status,
+    orderNumber: result.orderNumber,
+    created: result.created,
+  };
 }
 
 export type StripeEventClaim =

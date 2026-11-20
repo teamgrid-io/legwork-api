@@ -26,6 +26,16 @@ interface SubmittedApplicationDto {
   submittedAt: Date;
 }
 
+/**
+ * Answers written into applicants.answers when the order is created from a paid
+ * checkout (webhooks/service.ts). They are not form fields, so submit's
+ * visibility cleanup must keep them instead of treating them as hidden answers.
+ */
+const ORDER_CREATED_ANSWER_KEYS: readonly string[] = [
+  "gender",
+  "marital_status",
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -298,7 +308,10 @@ export async function submitApplication(
     const cleanedAnswers: Record<string, unknown> = {};
 
     for (const [fieldKey, value] of Object.entries(storedAnswers)) {
-      if (visibleKeys.has(fieldKey)) {
+      if (
+        visibleKeys.has(fieldKey) ||
+        ORDER_CREATED_ANSWER_KEYS.includes(fieldKey)
+      ) {
         cleanedAnswers[fieldKey] = value;
       }
     }
@@ -316,7 +329,8 @@ export async function submitApplication(
         value === undefined ||
         value === null ||
         value === "" ||
-        (Array.isArray(value) && value.length === 0)
+        (Array.isArray(value) && value.length === 0) ||
+        (field.fieldType === "checkbox" && value !== true)
       ) {
         missingAnswers.push(field.fieldKey);
       }

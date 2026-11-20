@@ -10,9 +10,12 @@ import {
   resendActivation,
 } from "./activation.js";
 import { customerFromLocals } from "./middleware.js";
+import { getCustomerOrder, listCustomerOrders } from "./orders.js";
 import {
   activateSchema,
+  listOrdersQuerySchema,
   loginSchema,
+  orderNumberParamSchema,
   resendActivationSchema,
 } from "./schema.js";
 import { CUSTOMER_TOKEN_TTL_SECONDS, signCustomerToken } from "./token.js";
@@ -105,6 +108,38 @@ export async function meController(
     email: customer.email,
     phone: customer.phone,
   });
+}
+
+/**
+ * GET /api/v1/auth/orders
+ *
+ * The signed-in customer's own orders, newest first, paginated.
+ */
+export async function listOrdersController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { limit, offset } = listOrdersQuerySchema.parse(req.query);
+  const customer = customerFromLocals(res);
+  const orders = await listCustomerOrders(customer.id, { limit, offset });
+
+  res.status(200).json({ orders });
+}
+
+/**
+ * GET /api/v1/auth/orders/:orderNumber
+ *
+ * Ownership is part of the query, so another customer's order is a 404.
+ */
+export async function getOrderController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { orderNumber } = orderNumberParamSchema.parse(req.params);
+  const customer = customerFromLocals(res);
+  const order = await getCustomerOrder(customer.id, orderNumber);
+
+  res.status(200).json(order);
 }
 
 /**

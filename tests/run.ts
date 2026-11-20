@@ -57,11 +57,18 @@ process.env.FIELD_ENCRYPTION_KEY = "0".repeat(64);
 const { startTestServer, closeTestServer } = await import("./helpers/server.js");
 const { cleanTestFixtures } = await import("./helpers/db.js");
 const { closePool } = await import("./helpers/db.js");
+// Imported up front so the teardown below always has the handle. BullMQ treats
+// a caller-supplied ioredis instance as shared and will not close it, so the
+// producer connection must be closed here or the process never exits.
+const { documentScanQueue, producerConnection } = await import(
+  "../src/lib/queue.js"
+);
 
 const suitePaths = [
   "./integration/webhook-flow.test.js",
   "./integration/dedupe.test.js",
   "./integration/sweeper.test.js",
+  "./integration/submit.test.js",
   "./integration/staff-auth.test.js",
   "./integration/approval.test.js",
   "./integration/rate-limit.test.js",
@@ -87,6 +94,25 @@ try {
   await closeTestServer();
   await cleanTestFixtures();
   await closePool();
+
+  // Every test result is already recorded by this point, so teardown failures
+  // must not change `failures`. Closing the queue does not close the producer
+  // connection (it is shared), so close that explicitly to let Node exit.
+  try {
+    await documentScanQueue.close();
+  } catch (error) {
+    console.error(
+      `Could not close the document scan queue: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    await producerConnection.quit();
+  } catch {
+    // quit() fails when the socket is not writable (e.g. Redis was down the
+    // whole run); drop it without a graceful handshake instead.
+    producerConnection.disconnect();
+  }
 }
 
 if (failures > 0) {

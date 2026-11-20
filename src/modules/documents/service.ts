@@ -41,58 +41,8 @@ function isDocumentType(value: string): value is DocumentType {
 export async function uploadDocument(
   input: UploadDocumentInput,
 ): Promise<UploadedDocumentDto> {
-  const [applicant] = await db
-    .select({
-      status: applicants.status,
-      orderStatus: orders.status,
-      requiredDocuments: visaProducts.requiredDocuments,
-    })
-    .from(applicants)
-    .innerJoin(orders, eq(applicants.orderId, orders.id))
-    .innerJoin(visaProducts, eq(orders.visaProductId, visaProducts.id))
-    .where(eq(applicants.id, input.applicantId))
-    .limit(1);
-
-  if (!applicant) {
-    throw new HttpError(404, "Applicant not found");
-  }
-
-  if (
-    applicant.status === "complete" ||
-    applicant.orderStatus === "cancelled"
-  ) {
-    throw new HttpError(409, "Application is locked");
-  }
-
   if (!isDocumentType(input.documentType)) {
     throw new HttpError(400, "Unknown document type");
-  }
-
-  const requiredDocuments = Array.isArray(applicant.requiredDocuments)
-    ? applicant.requiredDocuments.filter(
-        (value): value is string => typeof value === "string",
-      )
-    : [];
-
-  if (!requiredDocuments.includes(input.documentType)) {
-    throw new HttpError(400, "Document not required for this destination");
-  }
-
-  const existingDocuments = await db
-    .select({
-      id: documents.id,
-      status: documents.status,
-    })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.applicantId, input.applicantId),
-        eq(documents.documentType, input.documentType),
-      ),
-    );
-
-  if (existingDocuments.some((document) => document.status === "verified")) {
-    throw new HttpError(409, "A verified document of this type already exists");
   }
 
   const { mimeType, sha256 } = checkFile(
@@ -102,12 +52,80 @@ export async function uploadDocument(
   );
   const storageKey = `${randomUUID()}.bin`;
 
+  // The file write is deliberately outside the transaction: the transaction
+  // only holds the applicant row lock and performs database writes.
   await storage.put(storageKey, input.buffer);
 
   let documentId: string;
 
   try {
-    documentId = await db.transaction(async (tx) => {
+    documentId = await db.transaction(async (tx): Promise<string> => {
+      // Lock the applicant before reading status, so a concurrent submit cannot
+      // complete the application between the check and the insert.
+      const [locked] = await tx
+        .select({ id: applicants.id })
+        .from(applicants)
+        .where(eq(applicants.id, input.applicantId))
+        .limit(1)
+        .for("update");
+
+      if (!locked) {
+        throw new HttpError(404, "Applicant not found");
+      }
+
+      const [applicant] = await tx
+        .select({
+          status: applicants.status,
+          orderStatus: orders.status,
+          requiredDocuments: visaProducts.requiredDocuments,
+        })
+        .from(applicants)
+        .innerJoin(orders, eq(applicants.orderId, orders.id))
+        .innerJoin(visaProducts, eq(orders.visaProductId, visaProducts.id))
+        .where(eq(applicants.id, input.applicantId))
+        .limit(1);
+
+      if (!applicant) {
+        throw new HttpError(404, "Applicant not found");
+      }
+
+      if (
+        applicant.status === "complete" ||
+        applicant.orderStatus === "cancelled"
+      ) {
+        throw new HttpError(409, "Application is locked");
+      }
+
+      const requiredDocuments = Array.isArray(applicant.requiredDocuments)
+        ? applicant.requiredDocuments.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [];
+
+      if (!requiredDocuments.includes(input.documentType)) {
+        throw new HttpError(400, "Document not required for this destination");
+      }
+
+      const existingDocuments = await tx
+        .select({
+          id: documents.id,
+          status: documents.status,
+        })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.applicantId, input.applicantId),
+            eq(documents.documentType, input.documentType),
+          ),
+        );
+
+      if (existingDocuments.some((document) => document.status === "verified")) {
+        throw new HttpError(
+          409,
+          "A verified document of this type already exists",
+        );
+      }
+
       const [created] = await tx
         .insert(documents)
         .values({

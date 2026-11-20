@@ -4,7 +4,7 @@ import { config } from "../config.js";
 
 // Producer connection: fail fast when Redis is unavailable instead of
 // buffering commands forever. The API turns the resulting error into a 503.
-const producerConnection = new Redis(config.redisUrl, {
+export const producerConnection = new Redis(config.redisUrl, {
   enableOfflineQueue: false,
   maxRetriesPerRequest: 1,
 });

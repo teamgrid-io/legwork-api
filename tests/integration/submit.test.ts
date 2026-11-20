@@ -231,6 +231,61 @@ async function cleanup(fixture: SubmitFixture): Promise<void> {
   await db.delete(visaProducts).where(eq(visaProducts.id, fixture.productId));
 }
 
+// The seeded required checkbox (src/db/seed.ts). The fixture product has no
+// seeded fields, so the same real key is added to its form here.
+const REQUIRED_CHECKBOX_KEY = "declaration_accepted";
+const HIDDEN_FIELD_KEY = "test_hidden_field";
+
+/** Add a required checkbox to the fixture product's form version 1. */
+async function addRequiredCheckbox(
+  fixture: SubmitFixture,
+  fieldKey: string,
+): Promise<void> {
+  await db.insert(formFields).values({
+    visaProductId: fixture.productId,
+    formVersion: 1,
+    step: "full",
+    groupKey: "declaration",
+    fieldKey,
+    label: "I confirm the information above is true",
+    fieldType: "checkbox",
+    required: true,
+    options: [],
+    sortOrder: 2,
+    visibleIf: null,
+  });
+}
+
+/**
+ * Add a text field that is hidden while the required text is "hello", so submit
+ * has a stored answer that must be cleaned away.
+ */
+async function addHiddenField(fixture: SubmitFixture): Promise<void> {
+  await db.insert(formFields).values({
+    visaProductId: fixture.productId,
+    formVersion: 1,
+    step: "full",
+    groupKey: "personal",
+    fieldKey: HIDDEN_FIELD_KEY,
+    label: "Test hidden text",
+    fieldType: "text",
+    required: false,
+    options: [],
+    sortOrder: 2,
+    visibleIf: { field: TEST_FIELD_KEY, equals: "hide-me" },
+  });
+}
+
+async function setAnswers(
+  fixture: SubmitFixture,
+  answers: Record<string, unknown>,
+): Promise<void> {
+  await db
+    .update(applicants)
+    .set({ answers })
+    .where(eq(applicants.id, fixture.applicantId));
+}
+
 export const suiteTests: Array<Promise<void>> = [
   test("submit with a missing required document returns 400 and leaves stored answers unchanged", async () => {
     const fixture = await createFixture();
@@ -365,6 +420,90 @@ export const suiteTests: Array<Promise<void>> = [
       const after = await countDocuments(fixture.applicantId);
 
       assert.equal(after, before);
+    } finally {
+      await cleanup(fixture);
+    }
+  }),
+
+  test("a required checkbox set to false is rejected, and set to true submits", async () => {
+    const falseFixture = await createFixture();
+    const trueFixture = await createFixture();
+
+    try {
+      await addRequiredCheckbox(falseFixture, REQUIRED_CHECKBOX_KEY);
+      await setAnswers(falseFixture, {
+        [TEST_FIELD_KEY]: "hello",
+        [REQUIRED_CHECKBOX_KEY]: false,
+      });
+      // Present so a 200 here can only mean the checkbox was accepted, never a
+      // missing document.
+      await addVerifiedPassport(falseFixture);
+
+      await assert.rejects(
+        () => submitApplication(falseFixture.applicantId),
+        (error: unknown) =>
+          error instanceof HttpError &&
+          error.statusCode === 400 &&
+          error.message.includes(REQUIRED_CHECKBOX_KEY),
+      );
+
+      const [rejected] = await db
+        .select({ answers: applicants.answers, status: applicants.status })
+        .from(applicants)
+        .where(eq(applicants.id, falseFixture.applicantId))
+        .limit(1);
+
+      assert.deepEqual(rejected?.answers, {
+        [TEST_FIELD_KEY]: "hello",
+        [REQUIRED_CHECKBOX_KEY]: false,
+      });
+      assert.notEqual(rejected?.status, "complete");
+
+      await addRequiredCheckbox(trueFixture, REQUIRED_CHECKBOX_KEY);
+      await setAnswers(trueFixture, {
+        [TEST_FIELD_KEY]: "hello",
+        [REQUIRED_CHECKBOX_KEY]: true,
+      });
+      await addVerifiedPassport(trueFixture);
+
+      const submitted = await submitApplication(trueFixture.applicantId);
+
+      assert.equal(submitted.status, "complete");
+    } finally {
+      await cleanup(falseFixture);
+      await cleanup(trueFixture);
+    }
+  }),
+
+  test("submit keeps gender and marital_status and still removes hidden answers", async () => {
+    const fixture = await createFixture();
+
+    try {
+      await addHiddenField(fixture);
+      await setAnswers(fixture, {
+        [TEST_FIELD_KEY]: "hello",
+        [HIDDEN_FIELD_KEY]: "should-be-removed",
+        gender: "female",
+        marital_status: "single",
+      });
+      await addVerifiedPassport(fixture);
+
+      const submitted = await submitApplication(fixture.applicantId);
+
+      assert.equal(submitted.status, "complete");
+
+      const [row] = await db
+        .select({ answers: applicants.answers, status: applicants.status })
+        .from(applicants)
+        .where(eq(applicants.id, fixture.applicantId))
+        .limit(1);
+
+      assert.equal(row?.status, "complete");
+      assert.deepEqual(row?.answers, {
+        [TEST_FIELD_KEY]: "hello",
+        gender: "female",
+        marital_status: "single",
+      });
     } finally {
       await cleanup(fixture);
     }

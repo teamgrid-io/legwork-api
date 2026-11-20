@@ -508,4 +508,54 @@ export const suiteTests: Array<Promise<void>> = [
       await cleanup(fixture);
     }
   }),
+
+  test("saveAnswers rejects order-created keys as unknown fields", async () => {
+    const fixture = await createFixture();
+
+    try {
+      const [before] = await db
+        .select({ answers: applicants.answers })
+        .from(applicants)
+        .where(eq(applicants.id, fixture.applicantId))
+        .limit(1);
+
+      await assert.rejects(
+        () => saveAnswers(fixture.applicantId, { gender: "female" }),
+        (error: unknown) =>
+          error instanceof HttpError &&
+          error.statusCode === 400 &&
+          error.message === "Unknown field: gender",
+      );
+
+      await assert.rejects(
+        () => saveAnswers(fixture.applicantId, { marital_status: "single" }),
+        (error: unknown) =>
+          error instanceof HttpError &&
+          error.statusCode === 400 &&
+          error.message === "Unknown field: marital_status",
+      );
+
+      const [after] = await db
+        .select({ answers: applicants.answers })
+        .from(applicants)
+        .where(eq(applicants.id, fixture.applicantId))
+        .limit(1);
+
+      assert.deepEqual(after?.answers, before?.answers);
+      assert.deepEqual(after?.answers, { [TEST_FIELD_KEY]: "hello" });
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(after?.answers ?? {}, "gender"),
+        false,
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          after?.answers ?? {},
+          "marital_status",
+        ),
+        false,
+      );
+    } finally {
+      await cleanup(fixture);
+    }
+  }),
 ];

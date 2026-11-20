@@ -30,6 +30,7 @@ Prerequisites: Node.js (same major version as the team), Docker Desktop, Postgre
    PAYMENT_PROVIDER=dummy
    FIELD_ENCRYPTION_KEY=<64-character hex string, generate your own>
    ADMIN_PASSWORD=<at least 8 characters>
+   CUSTOMER_JWT_SECRET=<at least 32 characters, different from JWT_SECRET>
    ```
 
 4. Start Redis (needed for document scanning):

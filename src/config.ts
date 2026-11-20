@@ -40,6 +40,11 @@ const envSchema = z
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
+    // Customer auth. Validated like JWT_SECRET in modules/staff/config.ts, and
+    // kept separate so a customer token can never be accepted as a staff token.
+    CUSTOMER_JWT_SECRET: z
+      .string({ error: "is required" })
+      .min(32, "must be at least 32 characters"),
     // Optional in .env. Absent or blank is removed by withoutEmptyValues(),
     // so .default(300) applies. Non-numeric input fails .int().
     PAYMENT_REVIEW_GRACE_SECONDS: z.coerce
@@ -81,6 +86,18 @@ const envSchema = z
         message: "is required when NODE_ENV is 'production'",
       });
     }
+
+    // Same key for both token audiences would let a customer token verify as a
+    // staff token (or the reverse) if the audience check were ever dropped.
+    const staffSecret = process.env.JWT_SECRET?.trim();
+
+    if (staffSecret && env.CUSTOMER_JWT_SECRET.trim() === staffSecret) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CUSTOMER_JWT_SECRET"],
+        message: "must differ from JWT_SECRET",
+      });
+    }
   });
 
 export interface AppConfig {
@@ -96,6 +113,7 @@ export interface AppConfig {
   readonly uploadDir: string;
   readonly redisUrl: string;
   readonly adminPassword: string;
+  readonly customerJwtSecret: string;
   readonly paymentReviewGraceSeconds: number;
 }
 
@@ -150,6 +168,7 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       uploadDir: env.UPLOAD_DIR,
       redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
       adminPassword: env.ADMIN_PASSWORD,
+      customerJwtSecret: env.CUSTOMER_JWT_SECRET,
       paymentReviewGraceSeconds: env.PAYMENT_REVIEW_GRACE_SECONDS,
     }),
   };

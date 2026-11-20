@@ -35,6 +35,7 @@ Prerequisites: Node.js, Docker (for local Redis), and PostgreSQL.
 | `UPLOAD_DIR` | no | Default `./private-uploads`. Must be persistent storage in production. |
 | `REDIS_URL` | no in dev/test, yes in production | Default `redis://localhost:6379` outside production; required when `NODE_ENV=production`. |
 | `ADMIN_PASSWORD` | yes | Minimum 8 characters. |
+| `CUSTOMER_JWT_SECRET` | yes | Minimum 32 characters and different from `JWT_SECRET`. Signs customer tokens (HS256, `iss=legwork-api`, `aud=legwork-customer`). |
 
 Uploads are written to `UPLOAD_DIR` and scanned asynchronously. If the scan queue is unreachable the upload returns `503` and the row stays `pending_scan`; a sweep re-queues such rows every 5 minutes. A deployed API without a running worker leaves uploads unscanned.
 
@@ -599,6 +600,145 @@ Only `checkout.session.completed` events whose `data.object.payment_status` is `
 | --- | --- | --- |
 | 400 | Invalid webhook signature | `http_error` |
 | 404 | Not found | `not_found` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 13. POST /auth/activate
+
+Purpose: Consume an activation link and set the customer's first password.
+
+- **Auth:** none
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Body | `token` | string | yes | The `token` query value from the activation link. |
+| Body | `password` | string | yes | 10–128 characters. |
+
+The link is `${WEB_URL}/activate?token=<token>` and expires 48 hours after it is issued. Only the SHA-256 hash of the token is stored, and a link works at most once.
+
+**Success — 200**
+
+```json
+{
+  "token": "<customer access token>",
+  "expiresInSeconds": 43200,
+  "customer": {
+    "id": "9f1c2b3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+    "name": "Test Customer",
+    "email": "traveller@example.com"
+  }
+}
+```
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid request data | `validation_error` |
+| 400 | Invalid or expired activation link | `http_error` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 14. POST /auth/login
+
+Purpose: Exchange an activated customer's email and password for a customer token.
+
+- **Auth:** none
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Body | `email` | string | yes | Case-insensitive; normalised to lower case. |
+| Body | `password` | string | yes | 1–128 characters. |
+
+Unknown email, an unactivated account, and a wrong password all return the same `401` body and comparable work, so the response cannot be used to discover accounts.
+
+**Success — 200**
+
+```json
+{
+  "token": "<customer access token>",
+  "expiresInSeconds": 43200,
+  "customer": {
+    "id": "9f1c2b3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+    "name": "Test Customer",
+    "email": "traveller@example.com"
+  }
+}
+```
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid request data | `validation_error` |
+| 401 | Invalid credentials | `http_error` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 15. GET /auth/me
+
+Purpose: Read the signed-in customer's own profile.
+
+- **Auth:** `Authorization: Bearer <customer token>`
+
+**Request**
+
+No body.
+
+**Success — 200**
+
+```json
+{
+  "id": "9f1c2b3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+  "name": "Test Customer",
+  "email": "traveller@example.com",
+  "phone": "+15550100000"
+}
+```
+
+`phone` is `null` when no phone number was captured at checkout. A token is accepted only while its customer row exists and is activated.
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 401 | Authentication required | `http_error` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 16. POST /auth/resend-activation
+
+Purpose: Request a fresh activation link.
+
+- **Auth:** none
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Body | `email` | string | yes | Case-insensitive. |
+
+The response is identical whether or not the address belongs to an unactivated account; a mail is sent only when it does. An existing link is replaced.
+
+**Success — 200**
+
+```json
+{ "message": "If the account exists and is not activated, an email was sent" }
+```
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid request data | `validation_error` |
 | 500 | Something went wrong | `internal_error` |
 
 ---

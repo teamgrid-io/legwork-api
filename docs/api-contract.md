@@ -141,6 +141,8 @@ Purpose: Look up the visa rule for a passport/destination pair.
 
 - **Auth:** none
 
+**Internal only:** This endpoint must not be shown to customers until the visa rules are verified.
+
 **Request**
 
 | Location | Field | Type | Required | Notes |
@@ -768,7 +770,115 @@ No body.
 
 ---
 
-## 16. POST /auth/resend-activation
+## 16. GET /auth/orders
+
+Purpose: List the signed-in customer's orders, newest first.
+
+- **Auth:** `Authorization: Bearer <customer token>` (required)
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Query | `limit` | integer | no | 1–100; defaults to 20. |
+| Query | `offset` | integer | no | 0 or greater; defaults to 0. |
+
+**Success — 200**
+
+```json
+{
+  "orders": [
+    {
+      "orderNumber": "ORD-7K3Q9",
+      "status": "paid",
+      "travelDate": "2027-06-01",
+      "amountCents": 15000,
+      "currency": "USD",
+      "createdAt": "2026-11-21T10:15:00.000Z",
+      "applicantCount": 1
+    }
+  ]
+}
+```
+
+Each order includes `orderNumber`, `status`, `travelDate`, `amountCents`, `currency`, `createdAt`, and `applicantCount`. Results are ordered by creation time descending, then order number descending. The query is scoped to the authenticated customer.
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid request data | `validation_error` |
+| 401 | Authentication required | `http_error` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 17. GET /auth/orders/:orderNumber
+
+Purpose: Read one of the signed-in customer's orders and its applicants.
+
+- **Auth:** `Authorization: Bearer <customer token>` (required)
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Path | `orderNumber` | string | yes | 1–64 characters. |
+
+**Success — 200**
+
+```json
+{
+  "orderNumber": "ORD-7K3Q9",
+  "status": "paid",
+  "travelDate": "2027-06-01",
+  "amountCents": 15000,
+  "currency": "USD",
+  "createdAt": "2026-11-21T10:15:00.000Z",
+  "applicants": [
+    {
+      "id": "b6d1f0c2-8a4e-4f39-9c7d-1e2a3b4c5d6e",
+      "sortOrder": 1,
+      "firstName": "Test",
+      "surname": "Traveller",
+      "status": "incomplete",
+      "submittedAt": null,
+      "answers": {
+        "gender": "male",
+        "marital_status": "married",
+        "passport_number": "***567"
+      },
+      "progress": {
+        "answers": { "answered": 4, "total": 12 },
+        "documents": { "uploaded": 1, "required": 3 }
+      }
+    }
+  ]
+}
+```
+
+Each applicant includes `id`, `sortOrder`, `firstName`, `surname`, `status`, `submittedAt`, `answers`, and `progress`. Answer progress reports the count of answered visible required fields and the total visible required fields. Document progress reports documents of each required type that exist, in any status, including rejected, and the number of required types.
+
+The `answers` object contains all saved answers for the applicant. Only `passport_number` is masked: for a value longer than three characters the response is `***` followed by its last three characters; values of three characters or fewer are replaced entirely with asterisks. Encrypted `v1:` values are decrypted before masking; if decryption fails, the stored value is masked.
+
+The order lookup includes both the order number and authenticated customer id. An order belonging to another customer returns the same 404 response as an unknown order:
+
+```json
+{ "error": "Order not found", "code": "http_error" }
+```
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid request data | `validation_error` |
+| 401 | Authentication required | `http_error` |
+| 404 | Order not found | `http_error` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 18. POST /auth/resend-activation
 
 Purpose: Request a fresh activation link.
 
@@ -799,7 +909,7 @@ The response is identical whether or not the address belongs to an unactivated a
 
 ## Not yet available
 
-- **Full-details question list:** seeded for US, TH, MY, and AE only. Other destinations return an empty array from `GET /visaProducts/:visaProductId/form`.
+- **Development forms and products:** Georgia has a placeholder form that is not launch-ready. India is a development-only product, inactive in production; its fees and eligibility are unverified.
 - **Stripe:** the Stripe webhook is implemented (`POST /webhooks/stripe`). `dummy` is rejected when `NODE_ENV=production`, so production must use Stripe keys.
 - **Emailed traveller link:** replaced by customer accounts. Travellers activate through the emailed activation link, then use the customer Bearer token on the applicant and document routes.
 - **Staff endpoints:** not available in this API yet.

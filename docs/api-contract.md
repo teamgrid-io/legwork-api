@@ -403,14 +403,17 @@ The seeded pilot currently has no full-details fields, so the response is empty.
         "fieldType": "text",
         "required": true,
         "options": null,
-        "sortOrder": 1
+        "sortOrder": 1,
+        "visibleIf": null
       }
     ]
   }
 ]
 ```
 
-`fieldType` is one of `text`, `email`, `phone`, `date`, `select`, `radio`, `checkbox`, or `country`. `options` is field-specific (for example a string array for `select`/`radio`) and may be `null`.
+`fieldType` is one of `text`, `email`, `phone`, `date`, `select`, `radio`, `checkbox`, or `country`. `options` is field-specific (for example a string array for `select`/`radio`) and may be `null`. `visibleIf` is the stored conditional rule (`{ "field": "...", "equals": ... }` or `{ "field": "...", "in": [...] }`), or `null` when the field is unconditional.
+
+This route always uses the product's `current_form_version`.
 
 **Errors**
 
@@ -420,6 +423,35 @@ The seeded pilot currently has no full-details fields, so the response is empty.
 | 400 | answers must be valid JSON | `http_error` |
 | 400 | Invalid request data | `validation_error` |
 | 404 | Visa product not found | `http_error` |
+| 500 | Something went wrong | `internal_error` |
+
+---
+
+## 8a. GET /applicants/:applicantId/form
+
+Purpose: Return the full-details form for one applicant, grouped by section.
+
+- **Auth:** `Authorization: Bearer <customer token>` header (required). The applicant must belong to an order owned by that customer; otherwise the response is the same `404` as for an unknown applicant.
+
+The questions come from the form version pinned on the applicant's order (`orders.form_version`), not the product's `current_form_version`. Conditional visibility is computed from the answers already saved for the applicant, and `?answers=` is not read on this route.
+
+**Request**
+
+| Location | Field | Type | Required | Notes |
+| --- | --- | --- | --- | --- |
+| Path | `applicantId` | string (UUID) | yes | The applicant id. |
+
+**Success — 200**
+
+Same shape as `GET /visaProducts/:visaProductId/form`: an array of groups. Every field includes `visibleIf` exactly as stored (or `null`).
+
+**Errors**
+
+| Status | Message | Code |
+| --- | --- | --- |
+| 400 | Invalid request data | `validation_error` |
+| 401 | Authentication required | `http_error` |
+| 404 | Applicant not found | `http_error` |
 | 500 | Something went wrong | `internal_error` |
 
 ---
@@ -450,6 +482,20 @@ Each answer value must be one of: string, string array, boolean, number, or null
 ```
 
 Values are validated against the seeded field definitions: type, allowed options, and conditional visibility. `passport_number` is stored encrypted.
+
+Sending `null` for a field clears that answer: the key is removed from the stored answers. This is allowed for optional fields and also for required fields, but a cleared required field then fails submit until it is answered again.
+
+When validation fails, the `400` body keeps the existing `error` message and adds a per-field map:
+
+```json
+{
+  "error": "Invalid value for field: arrival_date",
+  "code": "http_error",
+  "errors": {
+    "arrival_date": "Invalid value for field: arrival_date"
+  }
+}
+```
 
 **Success — 200**
 
@@ -546,6 +592,8 @@ Purpose: Submit the applicant's completed full-details application.
 No body.
 
 A required document counts only when the applicant has a document of that type with status `verified`. Documents with status `uploaded`, `pending_scan`, or `rejected` do not count.
+
+If required answers are missing, the `400` body keeps `Missing required answers: <keys>` and adds `errors` with one entry per missing field, for example `{ "errors": { "arrival_date": "Missing required answer: arrival_date" } }`.
 
 **Success — 200**
 

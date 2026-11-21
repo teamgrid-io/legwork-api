@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { HttpError } from "../../lib/errors.js";
-import { verifyAccessToken } from "../applications/tokens.js";
+import { customerFromLocals } from "../customer/middleware.js";
+import { assertApplicantOwnedByCustomer } from "../customer/ownership.js";
 import {
   applicantIdParamSchema,
   uploadDocumentBodySchema,
@@ -12,11 +13,12 @@ export async function uploadDocumentController(
   res: Response,
 ): Promise<void> {
   const { applicantId } = applicantIdParamSchema.parse(req.params);
-  const token = req.headers["x-applicant-token"];
+  const customer = customerFromLocals(res);
 
-  if (typeof token !== "string" || !verifyAccessToken(applicantId, token)) {
-    throw new HttpError(401, "Invalid access token");
-  }
+  await assertApplicantOwnedByCustomer({
+    applicantId,
+    customerId: customer.id,
+  });
 
   const body = uploadDocumentBodySchema.parse(req.body);
 

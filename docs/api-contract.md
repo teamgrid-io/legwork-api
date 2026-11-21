@@ -428,14 +428,13 @@ The seeded pilot currently has no full-details fields, so the response is empty.
 
 Purpose: Save full-details answers for one applicant.
 
-- **Auth:** `x-applicant-token` header (required)
+- **Auth:** `Authorization: Bearer <customer token>` header (required). The applicant must belong to an order owned by that customer; otherwise the response is the same `404` as for an unknown applicant.
 
 **Request**
 
 | Location | Field | Type | Required | Notes |
 | --- | --- | --- | --- | --- |
 | Path | `applicantId` | string (UUID) | yes | The applicant id. |
-| Header | `x-applicant-token` | string | yes | Access token for this applicant. Missing or invalid returns `401`. |
 | Body | `answers` | object | yes | Map of form field key to answer value. |
 
 Each answer value must be one of: string, string array, boolean, number, or null. The body is strict and accepts only the `answers` key.
@@ -469,7 +468,7 @@ Values are validated against the seeded field definitions: type, allowed options
 | 400 | Unknown field: `<key>` | `http_error` |
 | 400 | Field not visible: `<key>` | `http_error` |
 | 400 | Invalid value for field: `<key>` | `http_error` |
-| 401 | Invalid access token | `http_error` |
+| 401 | Authentication required | `http_error` |
 | 404 | Applicant not found | `http_error` |
 | 409 | Application is locked | `http_error` |
 | 500 | Something went wrong | `internal_error` |
@@ -480,7 +479,7 @@ Values are validated against the seeded field definitions: type, allowed options
 
 Purpose: Upload one required document for an applicant.
 
-- **Auth:** `x-applicant-token` header (required)
+- **Auth:** `Authorization: Bearer <customer token>` header (required). Authentication is checked before the multipart body is read. The applicant must belong to an order owned by that customer; otherwise the response is the same `404` as for an unknown applicant.
 
 **Request** (`multipart/form-data`)
 
@@ -519,7 +518,7 @@ The seeded products currently list no required documents, so uploads return `Doc
 | 400 | Invalid file size | `http_error` |
 | 400 | File type not allowed | `http_error` |
 | 400 | File is required | `http_error` |
-| 401 | Invalid access token | `http_error` |
+| 401 | Authentication required | `http_error` |
 | 404 | Applicant not found | `http_error` |
 | 409 | Application is locked | `http_error` |
 | 409 | A verified document of this type already exists | `http_error` |
@@ -536,14 +535,13 @@ A `503` means the document row was saved as `pending_scan` but no scan job was q
 
 Purpose: Submit the applicant's completed full-details application.
 
-- **Auth:** `x-applicant-token` header (required)
+- **Auth:** `Authorization: Bearer <customer token>` header (required). The applicant must belong to an order owned by that customer; otherwise the response is the same `404` as for an unknown applicant.
 
 **Request**
 
 | Location | Field | Type | Required | Notes |
 | --- | --- | --- | --- | --- |
 | Path | `applicantId` | string (UUID) | yes | The applicant id. |
-| Header | `x-applicant-token` | string | yes | Access token for this applicant. Missing or invalid returns `401`. |
 
 No body.
 
@@ -566,7 +564,7 @@ A required document counts only when the applicant has a document of that type w
 | 400 | Invalid request data | `validation_error` |
 | 400 | Missing required answers: `<keys>` | `http_error` |
 | 400 | Missing required documents: `<types>` | `http_error` |
-| 401 | Invalid access token | `http_error` |
+| 401 | Authentication required | `http_error` |
 | 404 | Applicant not found | `http_error` |
 | 409 | Application is locked | `http_error` |
 | 500 | Something went wrong | `internal_error` |
@@ -747,5 +745,5 @@ The response is identical whether or not the address belongs to an unactivated a
 
 - **Full-details question list:** seeded for US, TH, MY, and AE only. Other destinations return an empty array from `GET /visaProducts/:visaProductId/form`.
 - **Stripe:** the Stripe webhook is implemented (`POST /webhooks/stripe`). `dummy` is rejected when `NODE_ENV=production`, so production must use Stripe keys.
-- **Emailed traveller link:** no endpoint issues or emails the `x-applicant-token`. The token helper is dev-only.
+- **Emailed traveller link:** replaced by customer accounts. Travellers activate through the emailed activation link, then use the customer Bearer token on the applicant and document routes.
 - **Staff endpoints:** not available in this API yet.

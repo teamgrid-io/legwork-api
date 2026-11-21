@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readdir } from "node:fs/promises";
 import { test } from "node:test";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
+import { config } from "../../src/config.js";
 import { db } from "../../src/db/index.js";
 import {
   applicants,
@@ -312,9 +314,20 @@ async function readJson(response: Response): Promise<JsonResponse> {
   };
 }
 
+function authHeaders(
+  token?: string,
+  legacyToken?: string,
+): Record<string, string> {
+  return {
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...(legacyToken ? { "x-applicant-token": legacyToken } : {}),
+  };
+}
+
 async function putAnswers(
   applicantId: string,
   token?: string,
+  legacyToken?: string,
 ): Promise<JsonResponse> {
   const response = await fetch(
     `${getBaseUrl()}/api/v1/applicants/${applicantId}/answers`,
@@ -322,7 +335,7 @@ async function putAnswers(
       method: "PUT",
       headers: {
         "content-type": "application/json",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...authHeaders(token, legacyToken),
       },
       body: JSON.stringify({ answers: { test_required_text: "hello" } }),
     },
@@ -334,12 +347,13 @@ async function putAnswers(
 async function postSubmit(
   applicantId: string,
   token?: string,
+  legacyToken?: string,
 ): Promise<JsonResponse> {
   const response = await fetch(
     `${getBaseUrl()}/api/v1/applicants/${applicantId}/submit`,
     {
       method: "POST",
-      headers: token ? { authorization: `Bearer ${token}` } : {},
+      headers: authHeaders(token, legacyToken),
     },
   );
 
@@ -349,6 +363,7 @@ async function postSubmit(
 async function postDocument(
   applicantId: string,
   token?: string,
+  legacyToken?: string,
 ): Promise<JsonResponse> {
   const form = new FormData();
 
@@ -365,12 +380,42 @@ async function postDocument(
     `${getBaseUrl()}/api/v1/applicants/${applicantId}/documents`,
     {
       method: "POST",
-      headers: token ? { authorization: `Bearer ${token}` } : {},
+      headers: authHeaders(token, legacyToken),
       body: form,
     },
   );
 
   return readJson(response);
+}
+
+/**
+ * Only the documents tests write files. Serializing them keeps the anonymous
+ * file-count assertion independent of a concurrent owner upload and its
+ * cleanup.
+ */
+let uploadLock: Promise<unknown> = Promise.resolve();
+
+function withUploadLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = uploadLock.then(fn, fn);
+
+  uploadLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return result;
+}
+
+async function uploadFileCount(): Promise<number> {
+  try {
+    return (await readdir(config.uploadDir)).length;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return 0;
+    }
+
+    throw error;
+  }
 }
 
 export const suiteTests: Array<Promise<void>> = [
@@ -403,11 +448,19 @@ export const suiteTests: Array<Promise<void>> = [
       assert.deepEqual(allowed.body.savedFields, ["test_required_text"]);
 
       const foreign = await putAnswers(foreignApplicant, ownerToken);
+      const randomApplicant = await putAnswers(randomUUID(), ownerToken);
 
       assert.equal(foreign.status, 404);
+      assert.equal(randomApplicant.status, 404);
+      assert.deepEqual(foreign.body, randomApplicant.body);
 
       assert.equal((await putAnswers(ownedApplicant)).status, 401);
       assert.equal((await putAnswers(ownedApplicant, staffToken)).status, 401);
+      assert.equal(
+        (await putAnswers(ownedApplicant, undefined, "legacy-applicant-token"))
+          .status,
+        401,
+      );
     } finally {
       await cleanup(data);
     }
@@ -446,11 +499,19 @@ export const suiteTests: Array<Promise<void>> = [
       assert.equal(allowed.body.status, "complete");
 
       const foreign = await postSubmit(foreignApplicant, ownerToken);
+      const randomApplicant = await postSubmit(randomUUID(), ownerToken);
 
       assert.equal(foreign.status, 404);
+      assert.equal(randomApplicant.status, 404);
+      assert.deepEqual(foreign.body, randomApplicant.body);
 
       assert.equal((await postSubmit(ownedApplicant)).status, 401);
       assert.equal((await postSubmit(ownedApplicant, staffToken)).status, 401);
+      assert.equal(
+        (await postSubmit(ownedApplicant, undefined, "legacy-applicant-token"))
+          .status,
+        401,
+      );
     } finally {
       await cleanup(data);
     }
@@ -459,42 +520,90 @@ export const suiteTests: Array<Promise<void>> = [
   test("documents: owner allowed, other customer 404, no token 401, staff token 401", async () => {
     const data = emptyFixture();
 
-    try {
-      const countryId = await firstCountryId();
-      const productId = await createProduct(data, countryId);
-      const ownerId = await createCustomer(data, "Documents Owner");
-      const otherId = await createCustomer(data, "Documents Other");
-      const ownedApplicant = await createApplicant(data, {
-        customerId: ownerId,
-        productId,
-        countryId,
-      });
-      const foreignApplicant = await createApplicant(data, {
-        customerId: otherId,
-        productId,
-        countryId,
-      });
+    await withUploadLock(async () => {
+      try {
+        const countryId = await firstCountryId();
+        const productId = await createProduct(data, countryId);
+        const ownerId = await createCustomer(data, "Documents Owner");
+        const otherId = await createCustomer(data, "Documents Other");
+        const ownedApplicant = await createApplicant(data, {
+          customerId: ownerId,
+          productId,
+          countryId,
+        });
+        const foreignApplicant = await createApplicant(data, {
+          customerId: otherId,
+          productId,
+          countryId,
+        });
 
-      const ownerToken = await signCustomerToken(ownerId);
-      const staffToken = await signStaffToken(ownerId);
+        const ownerToken = await signCustomerToken(ownerId);
+        const staffToken = await signStaffToken(ownerId);
 
-      const allowed = await postDocument(ownedApplicant, ownerToken);
+        const allowed = await postDocument(ownedApplicant, ownerToken);
 
-      assert.equal(allowed.status, 201);
-      assert.equal(allowed.body.documentType, "passport_scan");
-      assert.equal(allowed.body.status, "pending_scan");
+        assert.equal(allowed.status, 201);
+        assert.equal(allowed.body.documentType, "passport_scan");
+        assert.equal(allowed.body.status, "pending_scan");
 
-      const foreign = await postDocument(foreignApplicant, ownerToken);
+        const foreign = await postDocument(foreignApplicant, ownerToken);
+        const randomApplicant = await postDocument(randomUUID(), ownerToken);
 
-      assert.equal(foreign.status, 404);
+        assert.equal(foreign.status, 404);
+        assert.equal(randomApplicant.status, 404);
+        assert.deepEqual(foreign.body, randomApplicant.body);
 
-      assert.equal((await postDocument(ownedApplicant)).status, 401);
-      assert.equal(
-        (await postDocument(ownedApplicant, staffToken)).status,
-        401,
-      );
-    } finally {
-      await cleanup(data);
-    }
+        assert.equal((await postDocument(ownedApplicant)).status, 401);
+        assert.equal(
+          (await postDocument(ownedApplicant, staffToken)).status,
+          401,
+        );
+        assert.equal(
+          (
+            await postDocument(
+              ownedApplicant,
+              undefined,
+              "legacy-applicant-token",
+            )
+          ).status,
+          401,
+        );
+      } finally {
+        await cleanup(data);
+      }
+    });
+  }),
+
+  test("anonymous upload: 401, no document row, and no file written", async () => {
+    const data = emptyFixture();
+
+    await withUploadLock(async () => {
+      try {
+        const countryId = await firstCountryId();
+        const productId = await createProduct(data, countryId);
+        const ownerId = await createCustomer(data, "Anonymous Owner");
+        const applicantId = await createApplicant(data, {
+          customerId: ownerId,
+          productId,
+          countryId,
+        });
+
+        const filesBefore = await uploadFileCount();
+        const response = await postDocument(applicantId);
+        const filesAfter = await uploadFileCount();
+
+        assert.equal(response.status, 401);
+        assert.equal(filesAfter, filesBefore);
+
+        const rows = await db
+          .select({ id: documents.id })
+          .from(documents)
+          .where(eq(documents.applicantId, applicantId));
+
+        assert.equal(rows.length, 0);
+      } finally {
+        await cleanup(data);
+      }
+    });
   }),
 ];

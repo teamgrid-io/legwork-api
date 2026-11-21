@@ -76,6 +76,7 @@ const suitePaths = [
   "./integration/sweeper.test.js",
   "./integration/submit.test.js",
   "./integration/form-fixes.test.js",
+  "./integration/georgia-form.test.js",
   "./integration/document-uniqueness.test.js",
   "./integration/staff-auth.test.js",
   "./integration/customer-auth.test.js",

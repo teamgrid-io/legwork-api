@@ -560,7 +560,7 @@ const dummyFullFormFields = [
 ] as const;
 
 async function seedDummyFullForms(): Promise<void> {
-  const iso2Codes = ["US", "TH", "MY", "AE"] as const;
+  const iso2Codes = ["US", "TH", "MY", "AE", "GE"] as const;
 
   for (const iso2 of iso2Codes) {
     const [product] = await db

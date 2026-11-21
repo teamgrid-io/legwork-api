@@ -8,15 +8,20 @@ import {
   resendActivationController,
 } from "./controller.js";
 import { requireCustomer } from "./middleware.js";
+import {
+  activationRateLimiter,
+  loginRateLimiter,
+  resendActivationRateLimiter,
+} from "./rate-limit.js";
 
 export const customerAuthRouter = Router();
 
-// TODO: shared rate limit
-// The staff limiter (modules/staff/rate-limit.ts) is a concrete middleware, not
-// a factory, and its store is keyed for the staff login route. These endpoints
-// are therefore unthrottled until a shared limiter exists.
-customerAuthRouter.post("/activate", activateController);
-customerAuthRouter.post("/login", customerLoginController);
+customerAuthRouter.post(
+  "/activate",
+  activationRateLimiter,
+  activateController,
+);
+customerAuthRouter.post("/login", loginRateLimiter, customerLoginController);
 customerAuthRouter.get("/me", requireCustomer, meController);
 customerAuthRouter.get("/orders", requireCustomer, listOrdersController);
 customerAuthRouter.get(
@@ -24,4 +29,8 @@ customerAuthRouter.get(
   requireCustomer,
   getOrderController,
 );
-customerAuthRouter.post("/resend-activation", resendActivationController);
+customerAuthRouter.post(
+  "/resend-activation",
+  resendActivationRateLimiter,
+  resendActivationController,
+);

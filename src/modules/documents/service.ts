@@ -38,6 +38,49 @@ function isDocumentType(value: string): value is DocumentType {
   return (DOCUMENT_TYPES as readonly string[]).includes(value);
 }
 
+const ACTIVE_DOCUMENT_TYPE_CONSTRAINT = "documents_active_type_uq";
+
+/**
+ * True when the failure is the partial unique index that allows only one
+ * active (uploaded, pending_scan, verified) document per applicant and type.
+ *
+ * drizzle wraps driver errors, so the cause chain is walked. Any other 23505 is
+ * not this conflict and must surface unchanged.
+ */
+function isActiveDocumentTypeConflict(error: unknown): boolean {
+  let current: unknown = error;
+
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (current === null || typeof current !== "object") {
+      return false;
+    }
+
+    const node = current as {
+      code?: unknown;
+      constraint?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+
+    if (node.code === "23505") {
+      if (node.constraint === ACTIVE_DOCUMENT_TYPE_CONSTRAINT) {
+        return true;
+      }
+
+      if (
+        typeof node.message === "string" &&
+        node.message.includes(ACTIVE_DOCUMENT_TYPE_CONSTRAINT)
+      ) {
+        return true;
+      }
+    }
+
+    current = node.cause;
+  }
+
+  return false;
+}
+
 export async function uploadDocument(
   input: UploadDocumentInput,
 ): Promise<UploadedDocumentDto> {
@@ -161,6 +204,13 @@ export async function uploadDocument(
     await storage.delete(storageKey).catch(() => {
       // The row was not committed, so the file is an orphan either way.
     });
+
+    if (isActiveDocumentTypeConflict(error)) {
+      throw new HttpError(
+        409,
+        "A document of this type is already being uploaded",
+      );
+    }
 
     throw error;
   }

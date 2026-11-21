@@ -352,6 +352,11 @@ export const documents = pgTable(
   },
   (table) => [
     index("documents_applicant_idx").on(table.applicantId),
+    uniqueIndex("documents_active_type_uq")
+      .on(table.applicantId, table.documentType)
+      .where(
+        sql`${table.status} in ('uploaded', 'pending_scan', 'verified')`,
+      ),
     check(
       "documents_status_check",
       sql`${table.status} in ('uploaded', 'pending_scan', 'verified', 'rejected')`,

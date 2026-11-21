@@ -51,6 +51,7 @@ process.env.ADMIN_PASSWORD = "test-password-only";
 process.env.JWT_SECRET = "test-staff-jwt-secret-at-least-32-chars";
 process.env.CUSTOMER_JWT_SECRET = "test-customer-jwt-secret-at-least-32-chars";
 process.env.PAYMENT_REVIEW_GRACE_SECONDS = "300";
+process.env.RATE_LIMIT_STORE = "redis";
 
 // Also required by config.ts; not secrets, so fixed values are fine.
 process.env.WEB_URL = "http://localhost:3000";
@@ -64,6 +65,9 @@ const { closePool } = await import("./helpers/db.js");
 // producer connection must be closed here or the process never exits.
 const { documentScanQueue, producerConnection } = await import(
   "../src/lib/queue.js"
+);
+const { closeRateLimitRedisConnection } = await import(
+  "../src/modules/staff/rate-limit.js"
 );
 
 const suitePaths = [
@@ -121,6 +125,8 @@ try {
     // whole run); drop it without a graceful handshake instead.
     producerConnection.disconnect();
   }
+
+  await closeRateLimitRedisConnection();
 }
 
 if (failures > 0) {

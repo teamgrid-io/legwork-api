@@ -15,9 +15,11 @@ process.env.JWT_SECRET = "test-jwt-secret-with-at-least-32-chars";
 
 const { hashPassword } = await import("../../src/modules/staff/password.js");
 const { staffRouter } = await import("../../src/modules/staff/routes.js");
-const { resetRateLimiter } = await import(
-  "../../src/modules/staff/rate-limit.js"
-);
+const {
+  createRateLimitStore,
+  createStaffLoginRateLimiter,
+  resetRateLimiter,
+} = await import("../../src/modules/staff/rate-limit.js");
 
 const EMAIL_PREFIX = "test-staff-";
 const PASSWORD = "correct-horse-battery";
@@ -116,7 +118,7 @@ function assertRateLimited(result: LoginResult): void {
 
 const tests: Array<Promise<void>> = [
   test("5 wrong-password attempts return 401 and the 6th returns 429 with Retry-After", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const email = await createStaff();
 
@@ -131,7 +133,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("the 429 body is identical for an existing and an unknown email", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const existing = await createStaff();
 
@@ -147,7 +149,7 @@ const tests: Array<Promise<void>> = [
       password: WRONG_PASSWORD,
     });
 
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const unknown = newEmail();
 
@@ -169,7 +171,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("a different email from the same IP is still allowed", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const first = newEmail();
     const second = newEmail();
@@ -193,7 +195,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("20 attempts from one IP across different emails: the 21st is 429", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     for (let attempt = 1; attempt <= 20; attempt += 1) {
       const result = await postLogin({
@@ -210,7 +212,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("resetRateLimiter() allows attempts again", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const email = newEmail();
 
@@ -220,7 +222,7 @@ const tests: Array<Promise<void>> = [
 
     assertRateLimited(await postLogin({ email, password: WRONG_PASSWORD }));
 
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const allowed = await postLogin({ email, password: WRONG_PASSWORD });
 
@@ -229,7 +231,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("a malformed body counts against the IP limit and does not crash", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     // No email field at all: only the IP limit applies.
     for (let attempt = 1; attempt <= 19; attempt += 1) {
@@ -249,7 +251,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("a correct password is counted too: the 6th is 429", async () => {
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const email = await createStaff();
 
@@ -262,14 +264,112 @@ const tests: Array<Promise<void>> = [
 
     assertRateLimited(await postLogin({ email, password: PASSWORD }));
   }),
+
+  test("a fresh limiter instance still sees the exhausted Redis IP bucket", async () => {
+    const firstStore = createRateLimitStore("rl:staff:");
+    await firstStore.reset();
+
+    const beforeRestartApp = express();
+    beforeRestartApp.use(express.json());
+    beforeRestartApp.post(
+      "/login",
+      createStaffLoginRateLimiter(firstStore),
+      (_req, res) => res.status(401).json({ error: "Invalid credentials" }),
+    );
+    const beforeRestartServer = beforeRestartApp.listen(0, "127.0.0.1");
+
+    await new Promise<void>((resolve, reject) => {
+      beforeRestartServer.once("listening", resolve);
+      beforeRestartServer.once("error", reject);
+    });
+
+    const firstAddress = beforeRestartServer.address();
+
+    if (firstAddress === null || typeof firstAddress === "string") {
+      throw new Error("Restart test server did not bind a TCP port");
+    }
+
+    try {
+      const firstUrl = `http://127.0.0.1:${firstAddress.port}/login`;
+
+      for (let attempt = 1; attempt <= 20; attempt += 1) {
+        const response = await fetch(firstUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: newEmail(), password: WRONG_PASSWORD }),
+        });
+
+        assert.equal(response.status, 401, `attempt ${attempt} should be 401`);
+      }
+    } finally {
+      beforeRestartServer.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        beforeRestartServer.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+
+    // Simulate a process restart by discarding the first store and middleware.
+    // No Redis keys are reset between the two app instances.
+    const afterRestartStore = createRateLimitStore("rl:staff:");
+    const afterRestartApp = express();
+    afterRestartApp.use(express.json());
+    afterRestartApp.post(
+      "/login",
+      createStaffLoginRateLimiter(afterRestartStore),
+      (_req, res) => res.status(401).json({ error: "Invalid credentials" }),
+    );
+    const afterRestartServer = afterRestartApp.listen(0, "127.0.0.1");
+
+    await new Promise<void>((resolve, reject) => {
+      afterRestartServer.once("listening", resolve);
+      afterRestartServer.once("error", reject);
+    });
+
+    const secondAddress = afterRestartServer.address();
+
+    if (secondAddress === null || typeof secondAddress === "string") {
+      throw new Error("Restart test server did not bind a TCP port");
+    }
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${secondAddress.port}/login`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: newEmail(), password: WRONG_PASSWORD }),
+        },
+      );
+      const text = await response.text();
+      const result: LoginResult = {
+        status: response.status,
+        body: text ? (JSON.parse(text) as Json) : {},
+        retryAfter: response.headers.get("retry-after"),
+      };
+
+      assertRateLimited(result);
+    } finally {
+      afterRestartServer.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        afterRestartServer.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      await afterRestartStore.reset();
+    }
+  }),
 ];
 
 export const suiteTests: Array<Promise<void>> = [
   ...tests,
-  // Fixtures and in-memory windows are per suite; drop both, then close the port.
+  // Fixtures and prefixed Redis windows are per suite; then close the port.
   Promise.allSettled(tests).then(async () => {
     await cleanStaff();
-    resetRateLimiter();
+    await resetRateLimiter();
 
     const current = server;
 

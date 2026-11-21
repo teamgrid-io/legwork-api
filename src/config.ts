@@ -37,6 +37,7 @@ const envSchema = z
       .min(1, "must not be empty")
       .default("./private-uploads"),
     REDIS_URL: z.string().min(1, "must not be empty").optional(),
+    RATE_LIMIT_STORE: z.enum(["memory", "redis"]).default("redis"),
     ADMIN_PASSWORD: z
       .string({ error: "is required" })
       .min(8, "must be at least 8 characters"),
@@ -112,6 +113,7 @@ export interface AppConfig {
   readonly fieldEncryptionKey: Buffer;
   readonly uploadDir: string;
   readonly redisUrl: string;
+  readonly rateLimitStore: "memory" | "redis";
   readonly adminPassword: string;
   readonly customerJwtSecret: string;
   readonly paymentReviewGraceSeconds: number;
@@ -167,6 +169,7 @@ export function validateEnv(source: NodeJS.ProcessEnv = process.env): EnvValidat
       fieldEncryptionKey: Buffer.from(env.FIELD_ENCRYPTION_KEY, "hex"),
       uploadDir: env.UPLOAD_DIR,
       redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
+      rateLimitStore: env.RATE_LIMIT_STORE,
       adminPassword: env.ADMIN_PASSWORD,
       customerJwtSecret: env.CUSTOMER_JWT_SECRET,
       paymentReviewGraceSeconds: env.PAYMENT_REVIEW_GRACE_SECONDS,

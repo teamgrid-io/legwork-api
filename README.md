@@ -28,6 +28,7 @@ Prerequisites: Node.js (same major version as the team), Docker Desktop, Postgre
    DATABASE_URL=postgresql://<user>:<password>@localhost:5432/legwork
    WEB_URL=http://localhost:3000
    PAYMENT_PROVIDER=dummy
+   RATE_LIMIT_STORE=redis
    FIELD_ENCRYPTION_KEY=<64-character hex string, generate your own>
    ADMIN_PASSWORD=<at least 8 characters>
    CUSTOMER_JWT_SECRET=<at least 32 characters, different from JWT_SECRET>

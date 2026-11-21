@@ -111,7 +111,8 @@ export async function listCustomerOrders(
 ): Promise<OrderSummaryDto[]> {
   const applicantCount = sql<number>`(
     select count(*) from ${applicants}
-    where ${applicants.orderId} = ${orders.id}
+    where ${sql.identifier("applicants")}.${sql.identifier("order_id")}
+      = ${sql.identifier("orders")}.${sql.identifier("id")}
   )`.mapWith(Number);
 
   return db

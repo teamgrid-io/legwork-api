@@ -188,6 +188,216 @@ async function seedVisaRule(
   return inserted.length > 0;
 }
 
+interface AdditionalVisaRule {
+  passportIso2: string;
+  destinationIso2: string;
+  requirement: "visa_free" | "visa_required";
+  notes: string;
+}
+
+const additionalVisaRules: AdditionalVisaRule[] = [
+  {
+    passportIso2: "GE",
+    destinationIso2: "US",
+    requirement: "visa_required",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "GE",
+    destinationIso2: "TH",
+    requirement: "visa_free",
+    notes:
+      "30 days (secondary source). Verify Thailand 30-day rule applies to Georgian passports.",
+  },
+  {
+    passportIso2: "GE",
+    destinationIso2: "AE",
+    requirement: "visa_free",
+    notes: "90 days (official source, UAE mission Tbilisi).",
+  },
+  {
+    passportIso2: "GE",
+    destinationIso2: "MY",
+    requirement: "visa_free",
+    notes:
+      "30 days (official source, Malaysia mission Baku). Mandatory health insurance since 1 Jan 2026.",
+  },
+  {
+    passportIso2: "GE",
+    destinationIso2: "IN",
+    requirement: "visa_required",
+    notes: "e-Visa, memory, unverified.",
+  },
+  {
+    passportIso2: "US",
+    destinationIso2: "GE",
+    requirement: "visa_free",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "US",
+    destinationIso2: "TH",
+    requirement: "visa_free",
+    notes: "30 days (secondary source). TDAC arrival card required.",
+  },
+  {
+    passportIso2: "US",
+    destinationIso2: "AE",
+    requirement: "visa_free",
+    notes: "90 days (secondary source, news article).",
+  },
+  {
+    passportIso2: "US",
+    destinationIso2: "MY",
+    requirement: "visa_free",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "US",
+    destinationIso2: "IN",
+    requirement: "visa_required",
+    notes: "e-Visa, secondary source.",
+  },
+  {
+    passportIso2: "TH",
+    destinationIso2: "GE",
+    requirement: "visa_free",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "TH",
+    destinationIso2: "US",
+    requirement: "visa_required",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "TH",
+    destinationIso2: "AE",
+    requirement: "visa_free",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "TH",
+    destinationIso2: "MY",
+    requirement: "visa_free",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "TH",
+    destinationIso2: "IN",
+    requirement: "visa_required",
+    notes: "e-Visa, secondary source.",
+  },
+  {
+    passportIso2: "AE",
+    destinationIso2: "GE",
+    requirement: "visa_free",
+    notes: "365 days (official source, Georgian embassy UAE).",
+  },
+  {
+    passportIso2: "AE",
+    destinationIso2: "US",
+    requirement: "visa_required",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "AE",
+    destinationIso2: "TH",
+    requirement: "visa_free",
+    notes: "30 days (secondary source). TDAC arrival card required.",
+  },
+  {
+    passportIso2: "AE",
+    destinationIso2: "MY",
+    requirement: "visa_free",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "AE",
+    destinationIso2: "IN",
+    requirement: "visa_required",
+    notes:
+      "Visa on arrival only after prior India visa, secondary source.",
+  },
+  {
+    passportIso2: "MY",
+    destinationIso2: "GE",
+    requirement: "visa_free",
+    notes:
+      "365 days (official source, Malaysia mission Baku). Mandatory health insurance since 1 Jan 2026.",
+  },
+  {
+    passportIso2: "MY",
+    destinationIso2: "US",
+    requirement: "visa_required",
+    notes: "Memory, unverified.",
+  },
+  {
+    passportIso2: "MY",
+    destinationIso2: "TH",
+    requirement: "visa_free",
+    notes: "30 days (secondary source). TDAC arrival card required.",
+  },
+  {
+    passportIso2: "MY",
+    destinationIso2: "AE",
+    requirement: "visa_free",
+    notes: "30 days (secondary source, news article).",
+  },
+  {
+    passportIso2: "MY",
+    destinationIso2: "IN",
+    requirement: "visa_required",
+    notes: "e-Visa, secondary source.",
+  },
+];
+
+async function seedAdditionalVisaRules(): Promise<void> {
+  let insertedCount = 0;
+
+  for (const rule of additionalVisaRules) {
+    const [passportCountry] = await db
+      .select({ id: countries.id })
+      .from(countries)
+      .where(eq(countries.iso2, rule.passportIso2))
+      .limit(1);
+
+    if (!passportCountry) {
+      throw new Error(`Missing passport country ${rule.passportIso2}`);
+    }
+
+    const [destinationCountry] = await db
+      .select({ id: countries.id })
+      .from(countries)
+      .where(eq(countries.iso2, rule.destinationIso2))
+      .limit(1);
+
+    if (!destinationCountry) {
+      throw new Error(`Missing destination country ${rule.destinationIso2}`);
+    }
+
+    const inserted = await db
+      .insert(visaRules)
+      .values({
+        destinationCountryId: destinationCountry.id,
+        passportCountryId: passportCountry.id,
+        requirement: rule.requirement,
+        notes: rule.notes,
+      })
+      .onConflictDoNothing({
+        target: [
+          visaRules.destinationCountryId,
+          visaRules.passportCountryId,
+        ],
+      })
+      .returning({ id: visaRules.id });
+
+    insertedCount += inserted.length;
+  }
+
+  console.log(`Inserted ${insertedCount} additional visa rules`);
+}
+
 // DUMMY test data, verify before launch
 const dummyFullFormFields = [
   {
@@ -673,6 +883,7 @@ async function seed(): Promise<void> {
   }
 
   await seedDummyFullForms();
+  await seedAdditionalVisaRules();
 }
 
 try {

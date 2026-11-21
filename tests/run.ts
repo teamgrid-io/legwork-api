@@ -86,6 +86,7 @@ const suitePaths = [
   "./integration/rate-limit.test.js",
   "./integration/customer-rate-limit.test.js",
   "./integration/visa-rules.test.js",
+  "./integration/india-product.test.js",
 ];
 
 let failures = 0;

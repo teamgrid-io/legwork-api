@@ -74,6 +74,7 @@ const suitePaths = [
   "./integration/staff-auth.test.js",
   "./integration/customer-auth.test.js",
   "./integration/read-endpoints.test.js",
+  "./integration/ownership.test.js",
   "./integration/approval.test.js",
   "./integration/rate-limit.test.js",
 ];

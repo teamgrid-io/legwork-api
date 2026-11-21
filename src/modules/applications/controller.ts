@@ -1,22 +1,23 @@
 import type { Request, Response } from "express";
-import { HttpError } from "../../lib/errors.js";
+import { customerFromLocals } from "../customer/middleware.js";
+import { assertApplicantOwnedByCustomer } from "../customer/ownership.js";
 import {
   applicantIdParamSchema,
   saveAnswersBodySchema,
 } from "./schema.js";
 import { saveAnswers, submitApplication } from "./service.js";
-import { verifyAccessToken } from "./tokens.js";
 
 export async function saveAnswersController(
   req: Request,
   res: Response,
 ): Promise<void> {
   const { applicantId } = applicantIdParamSchema.parse(req.params);
-  const token = req.headers["x-applicant-token"];
+  const customer = customerFromLocals(res);
 
-  if (typeof token !== "string" || !verifyAccessToken(applicantId, token)) {
-    throw new HttpError(401, "Invalid access token");
-  }
+  await assertApplicantOwnedByCustomer({
+    applicantId,
+    customerId: customer.id,
+  });
 
   const body = saveAnswersBodySchema.parse(req.body);
   const result = await saveAnswers(applicantId, body.answers);
@@ -29,11 +30,12 @@ export async function submitApplicationController(
   res: Response,
 ): Promise<void> {
   const { applicantId } = applicantIdParamSchema.parse(req.params);
-  const token = req.headers["x-applicant-token"];
+  const customer = customerFromLocals(res);
 
-  if (typeof token !== "string" || !verifyAccessToken(applicantId, token)) {
-    throw new HttpError(401, "Invalid access token");
-  }
+  await assertApplicantOwnedByCustomer({
+    applicantId,
+    customerId: customer.id,
+  });
 
   const result = await submitApplication(applicantId);
 

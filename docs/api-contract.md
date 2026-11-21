@@ -538,7 +538,8 @@ Purpose: Upload one required document for an applicant.
 - JPEG, PNG, and PDF are detected from magic bytes; the declared type is not trusted.
 - Document `status` is one of `uploaded`, `pending_scan`, `verified`, `rejected`. Every upload is stored as a new row with status `pending_scan`.
 - The row is queued for scanning immediately. A worker moves it to `verified` (clean file) or `rejected` with a `rejection_reason`; the status is not `verified` at the time of this response.
-- A file for a type that already has a `verified` document is rejected. Otherwise the new row is added and earlier rows for the same type are kept.
+- A file for a type that already has a `verified` document is rejected. An upload is also rejected while another document of the same type is `uploaded` or `pending_scan`. Otherwise the new row is added and earlier rows for the same type are kept.
+- Once an earlier document of a type is `rejected`, it no longer blocks a new upload of that type. The rejected row is kept and the new row starts as `pending_scan`.
 
 The seeded products currently list no required documents, so uploads return `Document not required for this destination` until a product's required documents are configured.
 
@@ -568,8 +569,11 @@ The seeded products currently list no required documents, so uploads return `Doc
 | 404 | Applicant not found | `http_error` |
 | 409 | Application is locked | `http_error` |
 | 409 | A verified document of this type already exists | `http_error` |
+| 409 | A document of this type is already being uploaded | `http_error` |
 | 500 | Something went wrong | `internal_error` |
 | 503 | Scan service unavailable, try again | `http_error` |
+
+A `409 A verified document of this type already exists` is returned when any document of that type for the applicant is already `verified`. A `409 A document of this type is already being uploaded` is returned while another document of that type is `uploaded`, `pending_scan`, or `verified`, including a concurrent upload for the same type. Once the earlier document is `rejected`, a new upload of that type is allowed again.
 
 The multipart parser enforces the 5 MB limit before the controller runs.
 

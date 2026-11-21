@@ -656,6 +656,8 @@ Only `checkout.session.completed` events whose `data.object.payment_status` is `
 
 ## 13. POST /auth/activate
 
+Rate limits use the shared Redis store by default (`RATE_LIMIT_STORE=redis`); `memory` selects per-process counters.
+
 The customer auth write endpoints (`POST /auth/activate`, `POST /auth/login`, `POST /auth/resend-activation`) are rate limited per IP and per account identifier (email, or the link token for activation): 20 attempts per IP and 5 per identifier in a 15-minute window, counting successes and failures. A blocked request returns `429` with `{ "error": "Too many attempts", "code": "rate_limited" }` and a `Retry-After` header in seconds.
 
 Purpose: Consume an activation link and set the customer's first password.

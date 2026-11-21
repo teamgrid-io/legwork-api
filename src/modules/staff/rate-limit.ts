@@ -1,4 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
+import { Redis } from "ioredis";
+import { config } from "../../config.js";
 
 export const WINDOW_MS = 15 * 60 * 1000;
 export const IP_LIMIT = 20;
@@ -9,27 +11,132 @@ interface WindowEntry {
   windowStart: number;
 }
 
-/**
- * Per-process store. It resets on restart and is not shared between instances;
- * that is acceptable for the MVP but must be replaced by a shared store (Redis
- * or the database) before more than one API instance runs.
- *
- * Keys are namespaced (ip:/email:) so the two limits never collide.
- */
-const windows = new Map<string, WindowEntry>();
+export interface RateLimitEntry extends WindowEntry {
+  remainingMs: number;
+}
 
-const cleanupTimer = setInterval(() => {
-  const now = Date.now();
+export interface RateLimitStore {
+  increment(key: string, windowMs: number): Promise<RateLimitEntry>;
+  reset(): Promise<void>;
+}
 
-  for (const [key, entry] of windows) {
-    if (now - entry.windowStart >= WINDOW_MS) {
-      windows.delete(key);
+const incrementScript = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('PTTL', KEYS[1])
+return { count, ttl }
+`;
+
+const redisConnection =
+  config.rateLimitStore === "redis"
+    ? new Redis(config.redisUrl, { maxRetriesPerRequest: 1 })
+    : null;
+
+redisConnection?.on("error", () => {
+  console.error("Rate limit Redis connection error");
+});
+
+export function createInMemoryRateLimitStore(): RateLimitStore {
+  const windows = new Map<string, WindowEntry>();
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now();
+
+    for (const [key, entry] of windows) {
+      if (now - entry.windowStart >= WINDOW_MS) {
+        windows.delete(key);
+      }
     }
-  }
-}, WINDOW_MS);
+  }, WINDOW_MS);
+  cleanupTimer.unref();
 
-// A pending cleanup tick must not keep the process (or a test run) alive.
-cleanupTimer.unref();
+  return {
+    async increment(key, windowMs) {
+      const now = Date.now();
+      const entry = windows.get(key);
+
+      if (!entry || now - entry.windowStart >= windowMs) {
+        const fresh = { count: 1, windowStart: now };
+        windows.set(key, fresh);
+        return { ...fresh, remainingMs: windowMs };
+      }
+
+      entry.count += 1;
+      return {
+        ...entry,
+        remainingMs: Math.max(0, entry.windowStart + windowMs - Date.now()),
+      };
+    },
+    async reset() {
+      windows.clear();
+    },
+  };
+}
+
+export function createRedisRateLimitStore(prefix: string): RateLimitStore {
+  if (!redisConnection) {
+    throw new Error("Redis rate limit store is not configured");
+  }
+
+  const redisKey = (key: string): string => `${prefix}${key}`;
+
+  return {
+    async increment(key, windowMs) {
+      const result = (await redisConnection.eval(
+        incrementScript,
+        1,
+        redisKey(key),
+        String(windowMs),
+      )) as [number | string, number | string];
+      const count = Number(result[0]);
+      const remainingMs = Math.max(0, Number(result[1]));
+      const observedAt = Date.now();
+      const windowStart = observedAt - Math.max(0, windowMs - remainingMs);
+
+      return { count, windowStart, remainingMs };
+    },
+    async reset() {
+      let cursor = "0";
+
+      do {
+        const [nextCursor, keys] = await redisConnection.scan(
+          cursor,
+          "MATCH",
+          `${prefix}*`,
+          "COUNT",
+          "500",
+        );
+
+        if (keys.length > 0) {
+          await redisConnection.del(...keys);
+        }
+
+        cursor = nextCursor;
+      } while (cursor !== "0");
+    },
+  };
+}
+
+export function createRateLimitStore(prefix: string): RateLimitStore {
+  return config.rateLimitStore === "redis"
+    ? createRedisRateLimitStore(prefix)
+    : createInMemoryRateLimitStore();
+}
+
+export async function closeRateLimitRedisConnection(): Promise<void> {
+  if (!redisConnection) {
+    return;
+  }
+
+  try {
+    await redisConnection.quit();
+  } catch {
+    redisConnection.disconnect();
+  }
+}
+
+const staffRateLimitStore = createRateLimitStore("rl:staff:");
 
 function emailFromBody(req: Request): string | null {
   const body: unknown = req.body;
@@ -40,47 +147,13 @@ function emailFromBody(req: Request): string | null {
 
   const email = (body as { email?: unknown }).email;
 
-  if (typeof email !== "string") {
-    return null;
-  }
-
-  return email.trim().toLowerCase();
+  return typeof email === "string" ? email.trim().toLowerCase() : null;
 }
 
-/**
- * Read without writing: an entry whose window has passed counts as zero, but it
- * is not stored until the request is actually recorded.
- */
-function currentEntry(key: string, now: number): WindowEntry {
-  const entry = windows.get(key);
+function reject(res: Response, entry: RateLimitEntry): void {
+  const retryAfterSeconds = Math.ceil(entry.remainingMs / 1000);
 
-  if (!entry || now - entry.windowStart >= WINDOW_MS) {
-    return { count: 0, windowStart: now };
-  }
-
-  return entry;
-}
-
-function record(key: string, now: number): void {
-  const entry = windows.get(key);
-
-  if (!entry || now - entry.windowStart >= WINDOW_MS) {
-    windows.set(key, { count: 1, windowStart: now });
-    return;
-  }
-
-  entry.count += 1;
-}
-
-function reject(res: Response, entry: WindowEntry, now: number): void {
-  const retryAfterSeconds = Math.max(
-    1,
-    Math.ceil((entry.windowStart + WINDOW_MS - now) / 1000),
-  );
-
-  // Fixed line only: never the email or the IP.
   console.warn("Staff login rate limit reached");
-
   res.setHeader("Retry-After", String(retryAfterSeconds));
   res.status(429).json({
     error: "Too many login attempts",
@@ -88,49 +161,38 @@ function reject(res: Response, entry: WindowEntry, now: number): void {
   });
 }
 
-/**
- * POST /api/staff/login guard. Both limits must pass before the controller runs,
- * so a locked-out request never reaches scrypt.
- *
- * Every attempt that gets this far is counted, including wrong passwords,
- * unknown emails, inactive accounts, and structurally invalid bodies. A
- * syntactically invalid JSON body is rejected by express.json() before routing
- * and therefore cannot be counted; only the IP limit could apply to it anyway.
- * A successful login is counted too and never resets the window.
- */
-export function loginRateLimiter(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  const now = Date.now();
-  const ipKey = `ip:${req.ip ?? "unknown"}`;
-  const ipEntry = currentEntry(ipKey, now);
+/** Both buckets are charged before the login controller runs. */
+export function createStaffLoginRateLimiter(
+  store: RateLimitStore = staffRateLimitStore,
+): (req: Request, res: Response, next: NextFunction) => Promise<void> {
+  return async (req, res, next) => {
+    const ipEntry = await store.increment(
+      `ip:${req.ip ?? "unknown"}`,
+      WINDOW_MS,
+    );
+    const email = emailFromBody(req);
+    const emailEntry =
+      email === null
+        ? null
+        : await store.increment(`email:${email}`, WINDOW_MS);
 
-  if (ipEntry.count >= IP_LIMIT) {
-    reject(res, ipEntry, now);
-    return;
-  }
+    if (ipEntry.count > IP_LIMIT) {
+      reject(res, ipEntry);
+      return;
+    }
 
-  const email = emailFromBody(req);
-  const emailKey = email === null ? null : `email:${email}`;
-  const emailEntry = emailKey === null ? null : currentEntry(emailKey, now);
+    if (emailEntry !== null && emailEntry.count > EMAIL_LIMIT) {
+      reject(res, emailEntry);
+      return;
+    }
 
-  if (emailEntry !== null && emailEntry.count >= EMAIL_LIMIT) {
-    reject(res, emailEntry, now);
-    return;
-  }
-
-  record(ipKey, now);
-
-  if (emailKey !== null) {
-    record(emailKey, now);
-  }
-
-  next();
+    next();
+  };
 }
 
-/** Test hook: drop every window so the next attempt starts from zero. */
-export function resetRateLimiter(): void {
-  windows.clear();
+export const loginRateLimiter = createStaffLoginRateLimiter();
+
+/** Test hook: delete only keys under the staff rate-limit prefix. */
+export function resetRateLimiter(): Promise<void> {
+  return staffRateLimitStore.reset();
 }

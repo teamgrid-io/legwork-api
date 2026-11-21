@@ -124,7 +124,7 @@ async function login(email: string, password: string): Promise<JsonResponse> {
 
 const tests: Array<Promise<void>> = [
   test("5 wrong-password logins return 401 and the 6th returns 429 with Retry-After", async () => {
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
 
     const email = await createCustomer();
 
@@ -143,7 +143,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("the 429 body is identical for a known and an unknown email", async () => {
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
 
     const known = await createCustomer();
 
@@ -157,7 +157,7 @@ const tests: Array<Promise<void>> = [
       assertRateLimited(knownBlocked);
 
       // Start the unknown-email run from zero so only the address differs.
-      resetCustomerRateLimiter();
+      await resetCustomerRateLimiter();
 
       const unknown = newEmail();
 
@@ -175,7 +175,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("a correct-password attempt also counts toward the email bucket", async () => {
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
 
     const email = await createCustomer();
 
@@ -197,7 +197,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("20 attempts from one IP across different emails: the 21st is 429", async () => {
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
 
     for (let attempt = 1; attempt <= 20; attempt += 1) {
       const result = await login(newEmail(), WRONG_PASSWORD);
@@ -209,7 +209,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("activation: 5 bad tokens return 400 and the 6th returns 429", async () => {
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
 
     const token = `TEST-invalid-${randomUUID().replace(/-/g, "")}`;
 
@@ -232,7 +232,7 @@ const tests: Array<Promise<void>> = [
   }),
 
   test("resend-activation: 5 attempts then the 6th is 429 for known and unknown emails", async () => {
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
 
     const known = await createCustomer();
 
@@ -251,7 +251,7 @@ const tests: Array<Promise<void>> = [
 
       assertRateLimited(knownBlocked);
 
-      resetCustomerRateLimiter();
+      await resetCustomerRateLimiter();
 
       const unknown = newEmail();
 
@@ -282,9 +282,9 @@ const tests: Array<Promise<void>> = [
 export const suiteTests: Array<Promise<void>> = [
   ...tests,
   // Runs after every test above has settled. Only this suite's fixtures and
-  // in-memory windows are touched.
+  // Only this suite's fixture rows and customer-prefixed Redis keys are touched.
   Promise.allSettled(tests).then(async () => {
     await cleanStaleFixtures();
-    resetCustomerRateLimiter();
+    await resetCustomerRateLimiter();
   }),
 ];

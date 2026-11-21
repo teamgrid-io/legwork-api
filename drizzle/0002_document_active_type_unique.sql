@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "documents_active_type_uq" ON "documents" USING btree ("applicant_id","document_type") WHERE "documents"."status" in ('uploaded', 'pending_scan', 'verified');

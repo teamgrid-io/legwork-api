@@ -395,6 +395,7 @@ export const suiteTests: Array<Promise<void>> = [
       assert.equal(list.status, 200);
       assert.equal(ordersOf(list.body).length, 1);
       assert.equal(ordersOf(list.body)[0]?.orderNumber, orderA.orderNumber);
+      assert.equal(ordersOf(list.body)[0]?.applicantCount, 1);
 
       const foreign = await getJson(
         `/api/v1/auth/orders/${orderB.orderNumber}`,

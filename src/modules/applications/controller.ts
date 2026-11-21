@@ -1,11 +1,29 @@
 import type { Request, Response } from "express";
 import { customerFromLocals } from "../customer/middleware.js";
 import { assertApplicantOwnedByCustomer } from "../customer/ownership.js";
+import { getApplicantForm } from "../forms/service.js";
 import {
   applicantIdParamSchema,
   saveAnswersBodySchema,
 } from "./schema.js";
 import { saveAnswers, submitApplication } from "./service.js";
+
+export async function getApplicantFormController(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { applicantId } = applicantIdParamSchema.parse(req.params);
+  const customer = customerFromLocals(res);
+
+  await assertApplicantOwnedByCustomer({
+    applicantId,
+    customerId: customer.id,
+  });
+
+  const result = await getApplicantForm(applicantId);
+
+  res.json(result);
+}
 
 export async function saveAnswersController(
   req: Request,

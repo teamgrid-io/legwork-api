@@ -3,9 +3,13 @@ import express from "express";
 import { customerAuthRouter } from "../../src/modules/customer/routes.js";
 import { applicationsRouter } from "../../src/modules/applications/routes.js";
 import { documentsRouter } from "../../src/modules/documents/routes.js";
+import { formsRouter } from "../../src/modules/forms/routes.js";
 import { paymentsRouter } from "../../src/modules/payments/routes.js";
 import { webhooksRouter } from "../../src/modules/webhooks/routes.js";
-import { errorHandler } from "../../src/middleware/errorHandler.js";
+import {
+  errorHandler,
+  notFoundHandler,
+} from "../../src/middleware/errorHandler.js";
 
 // A minimal app on purpose: src/app.ts pulls in the Redis-backed queue module at
 // import time, which the tests must not open. Only the webhooks router and the
@@ -27,9 +31,11 @@ export async function startTestServer(): Promise<string> {
   // untouched), and to the customer auth router: the Stripe webhook route needs
   // the untouched raw body, so a global express.json() would break it.
   app.use("/api/v1/applicants", express.json({ limit: "100kb" }));
+  app.use("/api/v1", formsRouter);
   app.use("/api/v1", applicationsRouter);
   app.use("/api/v1", documentsRouter);
   app.use("/api/v1/auth", express.json({ limit: "100kb" }), customerAuthRouter);
+  app.use(notFoundHandler);
   app.use(errorHandler);
 
   const started = app.listen(0, "127.0.0.1");

@@ -54,8 +54,12 @@ function isRealDate(value: string): boolean {
   );
 }
 
+function fieldError(fieldKey: string, message: string): HttpError {
+  return new HttpError(400, message, "http_error", { [fieldKey]: message });
+}
+
 function invalidValue(fieldKey: string): never {
-  throw new HttpError(400, `Invalid value for field: ${fieldKey}`);
+  throw fieldError(fieldKey, `Invalid value for field: ${fieldKey}`);
 }
 
 function validateValue(
@@ -177,7 +181,20 @@ export async function saveAnswers(
     const existingAnswers = isRecord(applicant.answers)
       ? applicant.answers
       : {};
-    const mergedForVisibility = { ...existingAnswers, ...answers };
+    // A null value is a deletion, so it behaves like an absent answer when
+    // conditional visibility is evaluated.
+    const mergedForVisibility: Record<string, unknown> = {
+      ...existingAnswers,
+    };
+
+    for (const [fieldKey, value] of Object.entries(answers)) {
+      if (value === null) {
+        delete mergedForVisibility[fieldKey];
+      } else {
+        mergedForVisibility[fieldKey] = value;
+      }
+    }
+
     const visibleKeys = computeVisibleFieldKeys(fields, mergedForVisibility);
     const fieldsByKey = new Map(
       fields.map((field) => [field.fieldKey, field]),
@@ -185,16 +202,23 @@ export async function saveAnswers(
 
     const savedFields: string[] = [];
     const storedAnswers: Record<string, unknown> = {};
+    const clearedFields = new Set<string>();
 
     for (const [fieldKey, value] of Object.entries(answers)) {
       const field = fieldsByKey.get(fieldKey);
 
       if (!field) {
-        throw new HttpError(400, `Unknown field: ${fieldKey}`);
+        throw fieldError(fieldKey, `Unknown field: ${fieldKey}`);
       }
 
       if (!visibleKeys.has(fieldKey)) {
-        throw new HttpError(400, `Field not visible: ${fieldKey}`);
+        throw fieldError(fieldKey, `Field not visible: ${fieldKey}`);
+      }
+
+      if (value === null) {
+        clearedFields.add(fieldKey);
+        savedFields.push(fieldKey);
+        continue;
       }
 
       validateValue(field, fieldKey, value);
@@ -213,6 +237,10 @@ export async function saveAnswers(
     }
 
     const mergedAnswers = { ...existingAnswers, ...storedAnswers };
+
+    for (const fieldKey of clearedFields) {
+      delete mergedAnswers[fieldKey];
+    }
 
     await tx
       .update(applicants)
@@ -332,9 +360,17 @@ export async function submitApplication(
     }
 
     if (missingAnswers.length > 0) {
+      const errors: Record<string, string> = {};
+
+      for (const fieldKey of missingAnswers) {
+        errors[fieldKey] = `Missing required answer: ${fieldKey}`;
+      }
+
       throw new HttpError(
         400,
         `Missing required answers: ${missingAnswers.join(", ")}`,
+        "http_error",
+        errors,
       );
     }
 

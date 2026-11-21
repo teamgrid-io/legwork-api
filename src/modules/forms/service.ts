@@ -1,6 +1,11 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { formFields, visaProducts } from "../../db/schema.js";
+import {
+  applicants,
+  formFields,
+  orders,
+  visaProducts,
+} from "../../db/schema.js";
 import { HttpError } from "../../lib/errors.js";
 
 export interface FormFieldDto {
@@ -10,6 +15,7 @@ export interface FormFieldDto {
   required: boolean;
   options: unknown;
   sortOrder: number;
+  visibleIf: unknown;
 }
 
 export interface FormGroupDto {
@@ -157,19 +163,19 @@ export function computeVisibleFieldKeys(
   return visibleKeys;
 }
 
-export async function getVisibleFields(
-  input: VisibleFieldInput,
+interface FormVersionInput {
+  visaProductId: string;
+  formVersion: number;
+  answers: Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function loadFormGroups(
+  input: FormVersionInput,
 ): Promise<FormGroupDto[]> {
-  const [product] = await db
-    .select({ currentFormVersion: visaProducts.currentFormVersion })
-    .from(visaProducts)
-    .where(eq(visaProducts.id, input.visaProductId))
-    .limit(1);
-
-  if (!product) {
-    throw new HttpError(404, "Visa product not found");
-  }
-
   const fields = await db
     .select({
       fieldKey: formFields.fieldKey,
@@ -185,7 +191,7 @@ export async function getVisibleFields(
     .where(
       and(
         eq(formFields.visaProductId, input.visaProductId),
-        eq(formFields.formVersion, product.currentFormVersion),
+        eq(formFields.formVersion, input.formVersion),
         eq(formFields.step, "full"),
       ),
     )
@@ -206,6 +212,7 @@ export async function getVisibleFields(
       required: field.required,
       options: field.options,
       sortOrder: field.sortOrder,
+      visibleIf: field.visibleIf,
     };
 
     const group = groups.get(field.groupKey);
@@ -221,4 +228,55 @@ export async function getVisibleFields(
     groupKey,
     fields: groupFields,
   }));
+}
+
+export async function getVisibleFields(
+  input: VisibleFieldInput,
+): Promise<FormGroupDto[]> {
+  const [product] = await db
+    .select({ currentFormVersion: visaProducts.currentFormVersion })
+    .from(visaProducts)
+    .where(eq(visaProducts.id, input.visaProductId))
+    .limit(1);
+
+  if (!product) {
+    throw new HttpError(404, "Visa product not found");
+  }
+
+  return loadFormGroups({
+    visaProductId: input.visaProductId,
+    formVersion: product.currentFormVersion,
+    answers: input.answers,
+  });
+}
+
+/**
+ * The form an applicant must fill out is pinned to the version stored on their
+ * order, so editing a product's current form version never changes a paid
+ * order's questions. Visibility comes from the answers already saved for this
+ * applicant; there is no request-side answers override.
+ */
+export async function getApplicantForm(
+  applicantId: string,
+): Promise<FormGroupDto[]> {
+  const [row] = await db
+    .select({
+      visaProductId: orders.visaProductId,
+      formVersion: orders.formVersion,
+      answers: applicants.answers,
+    })
+    .from(applicants)
+    .innerJoin(orders, eq(applicants.orderId, orders.id))
+    .where(eq(applicants.id, applicantId))
+    .limit(1);
+
+  if (!row) {
+    throw new HttpError(404, "Applicant not found");
+  }
+
+  return loadFormGroups({
+    visaProductId: row.visaProductId,
+    formVersion: row.formVersion,
+    answers: isRecord(row.answers) ? row.answers : {},
+  });
 }

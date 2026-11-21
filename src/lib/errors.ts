@@ -7,11 +7,23 @@
 export class HttpError extends Error {
   readonly statusCode: number;
   readonly code: string;
+  /**
+   * Optional per-field messages. The save and submit routes use it so the
+   * client can attach an error to the field that caused the failure while the
+   * existing top-level message stays unchanged.
+   */
+  readonly errors: Record<string, string> | undefined;
 
-  constructor(statusCode: number, message: string, code = "http_error") {
+  constructor(
+    statusCode: number,
+    message: string,
+    code = "http_error",
+    errors?: Record<string, string>,
+  ) {
     super(message);
     this.name = "HttpError";
     this.statusCode = statusCode;
     this.code = code;
+    this.errors = errors;
   }
 }

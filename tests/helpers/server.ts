@@ -3,6 +3,8 @@ import express from "express";
 import { customerAuthRouter } from "../../src/modules/customer/routes.js";
 import { applicationsRouter } from "../../src/modules/applications/routes.js";
 import { documentsRouter } from "../../src/modules/documents/routes.js";
+import { catalogueRouter } from "../../src/modules/catalogue/routes.js";
+import { requestsRouter } from "../../src/modules/requests/routes.js";
 import { formsRouter } from "../../src/modules/forms/routes.js";
 import { paymentsRouter } from "../../src/modules/payments/routes.js";
 import { webhooksRouter } from "../../src/modules/webhooks/routes.js";
@@ -11,9 +13,8 @@ import {
   notFoundHandler,
 } from "../../src/middleware/errorHandler.js";
 
-// A minimal app on purpose: src/app.ts pulls in the Redis-backed queue module at
-// import time, which the tests must not open. Only the webhooks router and the
-// shared error handler are needed here.
+// Keep the test app separate from src/app.ts, which opens the Redis-backed
+// document queue at import time. Mount only the route groups used by suites.
 let server: Server | null = null;
 let baseUrl: string | null = null;
 
@@ -27,6 +28,9 @@ export async function startTestServer(): Promise<string> {
   app.use("/api/v1", webhooksRouter);
   // Only the public verify endpoint is exercised by the read endpoint suite.
   app.use("/api/v1", paymentsRouter);
+  app.use("/api/v1/requests", express.json({ limit: "100kb" }));
+  app.use("/api/v1", requestsRouter);
+  app.use("/api/v1", catalogueRouter);
   // JSON parsing is scoped to the applicant routes (multipart uploads are left
   // untouched), and to the customer auth router: the Stripe webhook route needs
   // the untouched raw body, so a global express.json() would break it.

@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./index.js";
 import { pool } from "./pool.js";
 import { countries, formFields, visaProducts, visaRules } from "./schema.js";
+import { config } from "../config.js";
 
 // DUMMY test data, verify before launch
 interface SeedDestination {
@@ -769,6 +770,18 @@ const dummyFullFormFields = [
   },
 ] as const;
 
+const indiaPakistaniOriginField = {
+  groupKey: "personal",
+  sortOrder: 80,
+  fieldKey: "has_pakistani_origin_or_parent",
+  label:
+    "Are you of Pakistani origin or passport, or were your parents or grandparents born in, or permanently resident in, Pakistan?",
+  fieldType: "radio",
+  required: true,
+  options: ["yes", "no"],
+  visibleIf: null,
+} as const;
+
 async function seedDummyFullForms(): Promise<void> {
   const iso2Codes = ["US", "TH", "MY", "AE", "GE"] as const;
 
@@ -828,6 +841,102 @@ async function seedDummyFullForms(): Promise<void> {
   }
 }
 
+async function seedIndiaDevelopmentProduct(): Promise<void> {
+  // DEV PLACEHOLDER: not official. Official published schedule, older PDF, not verified for 2026.
+  const governmentFeeCents = 2500;
+  const legworkFeeCents = 0;
+  const processingDaysMin = 1; // Placeholder processing estimate.
+  const processingDaysMax = 7; // Placeholder processing estimate.
+  const productName = "India e-Tourist Visa (DEV PLACEHOLDER)";
+
+  const [india] = await db
+    .select({ id: countries.id })
+    .from(countries)
+    .where(eq(countries.iso2, "IN"))
+    .limit(1);
+
+  if (!india) {
+    throw new Error("India country not found; seed or provision countries first");
+  }
+
+  const [existingProduct] = await db
+    .select({ id: visaProducts.id })
+    .from(visaProducts)
+    .where(
+      and(
+        eq(visaProducts.destinationCountryId, india.id),
+        eq(visaProducts.name, productName),
+      ),
+    )
+    .limit(1);
+
+  let productId = existingProduct?.id;
+
+  if (!productId) {
+    const requiredDocuments = [
+      "applicant_photo",
+      "passport_scan",
+      // return_ticket is an eligibility condition and not a mandatory upload per the official portal.
+      "return_ticket",
+    ];
+    const [product] = await db
+      .insert(visaProducts)
+      .values({
+        destinationCountryId: india.id,
+        name: productName,
+        visaType: "multiple_entry",
+        stayDays: 30,
+        processingDaysMin,
+        processingDaysMax,
+        governmentFeeCents,
+        legworkFeeCents,
+        currency: "USD",
+        requiredDocuments,
+        currentFormVersion: 1,
+        active: config.nodeEnv !== "production",
+      })
+      .returning({ id: visaProducts.id });
+
+    if (!product) {
+      throw new Error("India development product insert returned no row");
+    }
+
+    productId = product.id;
+  }
+
+  // Partial eligibility question; the full rule needs review before production.
+  const indiaFields = [...dummyFullFormFields, indiaPakistaniOriginField];
+  const insertedFields = await db
+    .insert(formFields)
+    .values(
+      indiaFields.map((field) => ({
+        visaProductId: productId,
+        formVersion: 1,
+        step: "full",
+        groupKey: field.groupKey,
+        fieldKey: field.fieldKey,
+        label: field.label,
+        fieldType: field.fieldType,
+        required: field.required,
+        options: field.options,
+        sortOrder: field.sortOrder,
+        visibleIf: field.visibleIf,
+      })),
+    )
+    .onConflictDoNothing({
+      target: [
+        formFields.visaProductId,
+        formFields.formVersion,
+        formFields.fieldKey,
+      ],
+    })
+    .returning({ id: formFields.id });
+
+  console.log(
+    `India development product ${existingProduct ? "already existed" : "seeded"}; inserted ${insertedFields.length} form fields`,
+  );
+}
+
 async function seed(): Promise<void> {
   for (const entry of seedDestinations) {
     const insertedParts: string[] = [];
@@ -884,6 +993,7 @@ async function seed(): Promise<void> {
 
   await seedDummyFullForms();
   await seedAdditionalVisaRules();
+  await seedIndiaDevelopmentProduct();
 }
 
 try {
